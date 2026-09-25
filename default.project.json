@@ -1,0 +1,61 @@
+{
+  "name": "CaughtOnCamera",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Config": {
+        "$path": "src/ReplicatedStorage/Config"
+      },
+      "Modules": {
+        "$path": "src/ReplicatedStorage/Modules"
+      },
+      "Remotes": {
+        "$className": "Folder"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Main": {
+        "$path": "src/ServerScriptService/Main.server.lua"
+      },
+      "Services": {
+        "$path": "src/ServerScriptService/Services"
+      },
+      "Anomalies": {
+        "$path": "src/ServerScriptService/Anomalies"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "ClientMain": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/ClientMain.client.lua"
+        },
+        "Controllers": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/Controllers"
+        }
+      }
+    },
+    "StarterGui": {
+      "$className": "StarterGui",
+      "$path": "src/StarterGui"
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "Map": {
+        "$className": "Folder",
+        "DeadMall": {
+          "$className": "Folder"
+        }
+      },
+      "AnomalySpawns": {
+        "$className": "Folder"
+      },
+      "Lobby": {
+        "$className": "Folder"
+      }
+    }
+  }
+}
