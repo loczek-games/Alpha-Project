@@ -27,7 +27,7 @@ function ResultsController:Init(controllers)
 		end
 	end)
 	controllers.ClientState.RoundChanged:Connect(function(round)
-		if round.State == "Round" then
+		if round.State == "Intro" or round.State == "Round" then
 			self:Hide()
 		end
 	end)

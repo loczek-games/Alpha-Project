@@ -118,6 +118,9 @@ function FxController:Init(controllers)
 			self.Controllers.JumpscareController:Play(payload)
 		elseif payload.Type == "FlashedBy" then
 			self:_flashedBy()
+		elseif payload.Type == "SoundTest" then
+			self.Controllers.AudioController:PrintReport()
+			self.Controllers.AudioController:TestSequence()
 		end
 	end)
 

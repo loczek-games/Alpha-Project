@@ -73,8 +73,10 @@ function LightCreature.Update(ctx, record)
 		for _, itemId in ipairs(LIGHT_ITEMS) do
 			if equipment:IsOn(player, itemId) then
 				local handle = equipment:GetHandle(player, itemId)
-				local beam = handle and handle:FindFirstChild("Beam")
-				if handle and beam and beam:IsA("SpotLight") and beam.Enabled then
+				local beam = handle and handle.Parent and handle.Parent:FindFirstChild("Beam", true)
+				local emitter = beam and beam.Parent
+				if handle and beam and beam:IsA("SpotLight") and beam.Enabled and emitter and emitter:IsA("BasePart") then
+					handle = emitter
 					local offset = position - handle.Position
 					local range = record.Params.BeamRange or 30
 					if offset.Magnitude < range then

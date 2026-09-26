@@ -14,11 +14,16 @@
 	  Despawn(ctx, record, reason)      restore anything borrowed from the map
 	  CanPhotograph(ctx, record, player) -> boolean, reason?
 
-	`ctx` is this service. Useful fields: ctx.Kit, ctx.Services, ctx.Config.
+	`ctx` is this service. Useful fields: ctx.Kit (bodies, parts, fades,
+	sounds), ctx.Objects (ObjectBehaviors), ctx.Services, ctx.Config.
+	Generic behaviours: Entity (creatures: Appearance + Movers + Brain),
+	ObjectAnomaly (possessed objects), CeilingCrawler.
 	Anything added to record.Cleaner is cleaned up automatically, and
-	record.Model (if set) is faded out and destroyed on despawn.
+	record.Model (if set) is faded out and destroyed on despawn - never set
+	record.Model to a map object (use VisibilityRoot for those).
 ]]
 
+local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -36,6 +41,8 @@ local Cleaner = require(Modules:WaitForChild("Cleaner"))
 
 local AnomaliesFolder = ServerScriptService:WaitForChild("Anomalies")
 local Kit = require(AnomaliesFolder:WaitForChild("AnomalyKit"))
+local Appearance = require(AnomaliesFolder:WaitForChild("Appearance"))
+local ObjectBehaviors = require(AnomaliesFolder:WaitForChild("ObjectBehaviors"))
 
 local AnomalyService = {}
 AnomalyService.Active = {}
@@ -45,6 +52,8 @@ AnomalyService.PersistentFx = {}
 AnomalyService.Behaviors = {}
 AnomalyService.Running = false
 AnomalyService.Kit = Kit
+AnomalyService.Objects = ObjectBehaviors
+AnomalyService.Appearance = Appearance
 AnomalyService.Config = GameConfig
 
 local SPAWNING = GameConfig.Spawning
@@ -59,6 +68,16 @@ function AnomalyService:Init(services)
 	self.FxRemote = Net.Event("AnomalyFx")
 	self.AnnounceRemote = Net.Event("Announce")
 	Kit.Audio = services.AudioService
+	Kit.Appearance = Appearance
+	Appearance:Init(services)
+
+	-- anomalies never collide with (push, block, trap) investigators
+	pcall(function()
+		PhysicsService:RegisterCollisionGroup(Kit.CollisionGroup)
+		PhysicsService:RegisterCollisionGroup("COCPlayer")
+		PhysicsService:CollisionGroupSetCollidable(Kit.CollisionGroup, "COCPlayer", false)
+		PhysicsService:CollisionGroupSetCollidable(Kit.CollisionGroup, Kit.CollisionGroup, false)
+	end)
 
 	-- Invisible markers that let client equipment (thermal scanner, camera
 	-- autofocus glitches, UV, "silence before an encounter") sense anomalies.
@@ -197,12 +216,6 @@ function AnomalyService:_meetsRequirements(def): boolean
 	end
 	if spawn.Player and #self:_freeTargetPlayers() == 0 then
 		return false
-	end
-	if spawn.NPC then
-		local available = #self.Services.NPCService:GetAvailable()
-		if available < (spawn.MinNPCs or 1) then
-			return false
-		end
 	end
 	if spawn.Fixture and #self:_freeFixtures(def) == 0 then
 		return false
@@ -729,12 +742,46 @@ function AnomalyService:GetEMFLevel(position: Vector3, range: number): (number, 
 	return math.clamp(level, 0, 5), distort
 end
 
--- Sound-hunting anomalies "catch" a player: jumpscare, short stun and drained battery.
-function AnomalyService:AttackPlayer(player: Player, kind: string, batteryDrain: number?)
-	self:FireFx(player, { Type = "Jumpscare", Kind = kind })
-	self.Services.CharacterService:Stun(player, GameConfig.Movement.StunTime)
-	if batteryDrain and batteryDrain > 0 then
-		self.Services.EquipmentService:DrainEquipped(player, batteryDrain)
+--[[
+	An anomaly catches an investigator:
+	  * first-person jumpscare in the anomaly's own style (JumpscareController)
+	  * everyone nearby hears it
+	  * Heavy = knocked down after the scare (team mates can revive),
+	    otherwise a short stun; optional battery drain
+	options: { Record, Heavy, BatteryDrain, Delay } (a number = battery drain, legacy)
+]]
+function AnomalyService:AttackPlayer(player: Player, kind: string, options: any)
+	local opts = if type(options) == "table" then options else { BatteryDrain = options }
+	local character = self.Services.CharacterService
+	if character:IsDowned(player) then
+		return
+	end
+	local record = opts.Record
+	local target = record and record.Target
+	local root = self:GetCharacterParts(player)
+	self:FireFx(player, {
+		Type = "Jumpscare",
+		Kind = kind,
+		Uid = record and record.Uid,
+		Position = if target and target.Parent then target.Position else nil,
+		Downed = opts.Heavy == true,
+	})
+	if root then
+		self.Services.AudioService:Play("Anomaly.Groan", root, { Exclude = player })
+		self.Services.NoiseService:Emit(root.Position, 0.5, "Voice", nil)
+	end
+	if opts.BatteryDrain and opts.BatteryDrain > 0 then
+		self.Services.EquipmentService:DrainEquipped(player, opts.BatteryDrain)
+	end
+	if opts.Heavy then
+		character:Stun(player, (opts.Delay or 1.6) + 0.2)
+		task.delay(opts.Delay or 1.6, function()
+			if player:IsDescendantOf(Players) then
+				character:Down(player, kind)
+			end
+		end)
+	else
+		character:Stun(player, GameConfig.Movement.StunTime)
 	end
 end
 

@@ -629,7 +629,7 @@ end
 
 function P.Payphone(f: Build.Frame, rng: any)
 	local m = f:model("Payphone")
-	local body = m:box("Body", V(1.8, 3, 1), V(0, 4.5, 0.4), C.Steel, M.Metal, { tags = { "Payphone" } })
+	local body = m:box("Body", V(1.8, 3, 1), V(0, 4.5, 0.4), C.Steel, M.Metal)
 	body.Name = "Body"
 	m:box("Handset", V(0.35, 1.5, 0.35), V(-0.6, 4.6, -0.2), C.Black, M.SmoothPlastic, DECO)
 	m:box("Keypad", V(0.8, 1, 0.1), V(0.2, 4.4, -0.12), C.Chrome, M.Metal, DECO)

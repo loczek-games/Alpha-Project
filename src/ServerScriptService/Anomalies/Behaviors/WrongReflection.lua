@@ -33,7 +33,7 @@ function WrongReflection.Spawn(ctx, record)
 	if not mirror then
 		return false
 	end
-	local glass = mirror:FindFirstChild("Glass")
+	local glass = if mirror:IsA("BasePart") then mirror else mirror:FindFirstChild("Glass")
 	if not glass or not glass:IsA("BasePart") then
 		return false
 	end

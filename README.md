@@ -10,15 +10,18 @@ and caught on camera.
 
 | | |
 |---|---|
-| **Core loop** | Lobby → 8-minute round in the **DEAD MALL** → Evidence Report → repeat |
-| **Understand in 5 s** | "📸 Spot something WRONG. Take a PHOTO." (lobby board + first-round hint) |
+| **Core loop** | P.I.A. HQ lobby → physical queue zone (1-6 investigators, parties stay together) → mission in the **DEAD MALL** (first person) → Evidence Report → back to HQ |
+| **Understand in 5 s** | "📸 Spot something WRONG. Take a PHOTO." |
 | **Controls** | Mobile: PHOTO button next to jump · PC: Left Click / E · Gamepad: R2 / X · hotbar 1-6 · Shift run · Ctrl/C sneak · Q zoom |
-| **Map** | Main Hall, Food Court, Toy Store, Arcade, Cinema, Bathrooms, Parking Garage, Storage Hallway (+ a locked Security Office), built from code |
-| **Anomalies** | 23 anomalies across 8 rarity tiers, one behaviour module each, 5 of them react to **sound** |
-| **Equipment** | Camera, Flashlight, EMF Detector, Thermal Scanner, UV Light, Night Vision (real held Tools, batteries) |
-| **Audio** | 185 original synthesised sounds in 4 upload files, 3D + occlusion, material footsteps, noise that anomalies hear |
-| **Events** | Paranormal Surge, Blackout, False Alarm, Rare Anomaly (random or bought for the whole server) |
-| **Collection** | Anomaly Album (silhouettes for undiscovered), Photo Roll, Dark Room showcase |
+| **Lobby** | Physical P.I.A. HQ: mission portals with "[DEAD MALL] 0/6 PLAYERS" boards and a 15 s timer, equipment / camera lab / flashlight bench / archive / supply / party / invite / settings stations, the Dark Room |
+| **Places** | Works as one place (Studio / single place) or as Lobby place + Gameplay place with reserved servers (`MapConfig.Places`) |
+| **Map** | Dead Mall: Grand Hall (2 floors, balconies, bridges, escalators), Food Court + 5 restaurants, Supermarket, Electronics, Clothing, Toy Store, Arcade, Cinema/Theaters, Restrooms, Service Halls, Back of House, Security Room, Parking Garage, Entrance. Baked to `assets/baked/DeadMall.rbxm` |
+| **Anomalies** | 52 anomalies: modular AI (Idle/Observe/Stalk/Search/InvestigateNoise/Follow/Hide/Chase/Attack/Disappear), floor + ceiling movers, reusable object behaviours, sound-reactive hunters, the Ceiling Crawler |
+| **Jumpscares** | Per-anomaly first-person jumpscares, stylised blood (toggle), FULL/REDUCED intensity; downed → teammates revive |
+| **Equipment** | DSLR-style camera with a live rear screen + first-person arms viewmodel, Flashlight (bench upgrades), EMF, Thermal, UV Light, Night Vision |
+| **Audio** | Original synthesised sounds, SoundGroup mixer, preload + verification, fallback for every sound (`docs/AUDIO.md`) |
+| **Social** | Parties (leader, ready, avatar, mic status), INVITE FRIENDS (SocialService) |
+| **Monetization** | PRO CAMERA, TACTICAL FLASHLIGHT, INVESTIGATOR PACK, VIP INVESTIGATOR, skins, dark room decor, REVIVE, PARANORMAL SURGE. Everything gameplay-relevant is also reachable for free |
 | **Saving** | DataStore with session locking, retries, autosave, BindToClose |
 
 ## Documentation
@@ -28,45 +31,78 @@ and caught on camera.
 | [`docs/EXPLORER_HIERARCHY.md`](docs/EXPLORER_HIERARCHY.md) | Exact Roblox Studio Explorer hierarchy |
 | [`docs/SCRIPTS.md`](docs/SCRIPTS.md) | All 74 scripts: name, type, exact location, source file |
 | [`docs/SETUP.md`](docs/SETUP.md) | Studio setup (Rojo or copy-paste), audio upload, monetization IDs, admin commands, adding anomalies |
+| [`docs/AUDIO.md`](docs/AUDIO.md) | Mixer, where every sound comes from, uploading the 4 banks, `/soundtest` |
+| [`docs/ANOMALY_MODELS.md`](docs/ANOMALY_MODELS.md) | Anomaly bodies: overrides, catalog bundles, procedural rigs, manual insertion |
 | [`docs/SOUND_DESIGN.md`](docs/SOUND_DESIGN.md) | Audio architecture, noise values, equipment / door / footstep sounds, sound-reactive anomalies, every sound path |
 | [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md) | Controls, photo validation, multiplayer, rounds, saving, passes, products, Surge, security, equipment, audio, noise |
 
-Quick start: open a Baseplate, run `rojo serve`, connect, enable *Studio
-Access to API Services*, press Play, type `/round start`. For the real audio,
+Quick start: open `build/CaughtOnCamera.rbxl` (or `rojo serve` into a
+Baseplate), enable *Studio Access to API Services*, press Play, walk into the
+DEAD MALL portal (or type `/round start`). For the real audio,
 upload the 4 files in `assets/audio/banks/` and paste their ids into
 `SoundConfig.Banks` (until then built-in fallback sounds play).
 
 ## The anomalies
 
-Odds are derived from `Weight` in `AnomalyConfig` ("1 in N spawn rolls").
+Odds are derived from `Weight` in `AnomalyConfig` ("1 in N spawn rolls"). Generated from the config:
 
-| Anomaly | Rarity | Odds | What happens |
+| Anomaly | Rarity | Odds | Description |
 |---|---|---|---|
-| Reverse Clock | Common | 1 / 5 | One of the mall's stopped clocks ticks and spins backwards |
-| Floating Shopping Cart | Common | 1 / 5 | A cart lifts off the floor, bobbing and turning |
-| Fake Exit | Common | 1 / 6 | An EXIT sign flickers, tilts and points into a wall |
-| Moving Door | Unusual | 1 / 13 | A door appears where none exists and creaks open onto darkness |
-| Walking Painting | Unusual | 1 / 14 | A figure in a painting moves closer whenever *you* look away (client-side) |
-| Blinking Lights | Unusual | 1 / 15 | A zone's lights blink ···---···; a figure is revealed in the dark phases |
-| Light Creature 🔊 | Unusual | 1 / 21 | Lurks in the dark and hisses; shine a flashlight on it and it burns away. Clicking a light makes it move |
-| Echo 🔊 | Unusual | 1 / 25 | Repeat a sound three times and it replays *your* sounds from somewhere else |
-| Watching Mannequin | Rare | 1 / 41 | A new mannequin creaks around to face the nearest player |
-| Faceless Shopper | Rare | 1 / 44 | An ambient shopper keeps walking, without a face |
-| Frozen Crowd | Rare | 1 / 49 | All shoppers freeze mid-step except one (frozen ones are decoys) |
-| The Listener 🔊 | Rare | 1 / 49 | Eyeless, breathing, hunts by SOUND. Run, slam doors or shoot near it and it comes for you; sneak past or wait for thunder |
-| Mimic 🔊 | Rare | 1 / 59 | Fakes gameplay sounds: a shutter, footsteps behind you, a door, EMF beeps, a flashlight click |
-| Wrong Reflection | Epic | 1 / 120 | Your clone appears in the bathroom mirror, staring and waving |
-| Ceiling Watcher | Epic | 1 / 120 | A long-limbed creature on the ceiling tracks you, then skitters |
-| Fake Player | Epic | 1 / 150 | A copy of a real player with a misspelled name moonwalks towards you |
-| Smiling Player | Mythic | 1 / 490 | A player gets a huge grin, but only on *other* players' screens |
-| The One Behind You | Mythic | 1 / 490 | A figure follows one player: "DO NOT TURN AROUND." It vanishes when they look |
-| The Photographer 🔊 | Nightmare | 1 / 3,000 | Hears your autofocus and stares; photograph it and it photographs YOU back: flash, black screen, badge |
-| The Observer | Impossible | 1 / 100,000 | A colossal eye fills the skylight and follows you, red tint, a deep drone |
-| The Night Manager | ??? | 1 / ??? | "ATTENTION SHOPPERS. THE MALL IS NOW CLOSED." Red lights, blinking manager |
-| Glowing Eyes | Common | Blackout only | Blinking eyes in dark corners |
-| Shadow Runner | Unusual | Blackout only | A black silhouette sprints down corridors |
+| 🕰️ Reverse Clock | Common | 1 / 12 | Every clock in the mall stopped at the same minute. This one is running backwards. |
+| 🛒 Floating Shopping Cart | Common | 1 / 13 | An abandoned cart that forgot about gravity. |
+| 🔀 Moving Exit | Common | 1 / 14 | The EXIT sign keeps moving. The exit it points to does not exist. |
+| 👀 Glowing Eyes | Common | 1 / 15 | Only appears in a blackout. Two lights that blink back. |
+| 🛒 Moving Cart | Common | 1 / 16 | Every time you look back, the cart is closer. |
+| 🍔 Floating Food Tray | Common | 1 / 17 | Someone's last meal, spinning slowly above the table. |
+| 🪑 Moving Chair | Common | 1 / 18 | A chair drags itself across the food court, always into your way. |
+| 🛍️ Shopping Bag Movement | Common | 1 / 18 | The bag rustles. Something inside is dragging it towards you. |
+| 🔴 Rolling Ball | Common | 1 / 21 | A child's ball rolls after you. Nobody threw it. |
+| 🚪 Possessed Door | Unusual | 1 / 31 | It opens. It slams. Nobody is there. |
+| 💡 Blinking Lights | Unusual | 1 / 33 | Three short, three long, three short. Something stands where the dark was. |
+| 📺 TV Entity | Unusual | 1 / 33 | Every screen in the store switched on. They all show the same face. |
+| 🏃 Shadow Runner | Unusual | 1 / 36 | Only appears in a blackout. Too fast to be a person. |
+| 🖼️ Walking Painting | Unusual | 1 / 35 | The person in the painting moves whenever nobody is looking. |
+| 🕹️ Possessed Arcade Machine | Unusual | 1 / 37 | PLAYER 2 HAS ENTERED THE GAME. |
+| ☎️ Phone Caller | Unusual | 1 / 39 | A disconnected payphone is ringing. It is for you. |
+| 😮 Ceiling Face | Unusual | 1 / 42 | A pale face pressed against the ventilation grille. Look up. |
+| 🚨 Car Alarm | Unusual | 1 / 45 | The car has had no battery for years. Its alarm is screaming. |
+| 📦 Flying Shelves | Unusual | 1 / 45 | The shelf shakes... and everything on it is thrown across the aisle. |
+| 🗄️ Locker Knocking | Unusual | 1 / 45 | Knock. Knock. Knock. From the inside. |
+| 🗿 The Statue | Unusual | 1 / 45 | The founder's statue always faces the entrance. Always faced. |
+| 🔔 Store Alarm | Unusual | 1 / 45 | The anti-theft gates are screaming. Nothing walked through them. Nothing you can see. |
+| 🦎 Light Creature | Unusual | 1 / 52 | Lives in the dark. Point a flashlight at it and it's gone. |
+| 🎭 Echo | Unusual | 1 / 57 | Repeat a sound and it repeats it back... from somewhere else. |
+| 🧍 Watching Mannequin | Rare | 1 / 87 | Its head turns to follow you. Only when you are not looking. |
+| 😶 Faceless Shopper | Rare | 1 / 98 | A late shopper strolling through a closed mall. Look closer at the face. |
+| 🛗 Fake Elevator | Rare | 1 / 100 | The elevator has been out of service since 1998. Ding. |
+| 👥 Mannequin Group | Rare | 1 / 100 | The whole display moved closer. All of them. Together. |
+| 📹 Security Camera Watcher | Rare | 1 / 100 | Every camera in the area turned to follow you. The monitors show someone standing behind you. |
+| 🧍‍♂️ Black Figure Behind Glass | Rare | 1 / 110 | Outside the entrance glass, in the rain, someone is watching you. |
+| 🚗 Someone In The Car | Rare | 1 / 110 | Someone is sitting in the driver's seat. Its head turns with you. |
+| 🏪 Closed Store Opening | Rare | 1 / 120 | The shutter that has been locked for years is rising. The lights inside are on. |
+| 👂 The Listener | Rare | 1 / 120 | Blind. It hunts by sound. Photograph it... if the shutter doesn't give you away. |
+| 🛗 Escalator Figure | Rare | 1 / 130 | The dead escalator started moving. Someone is riding it up. |
+| 🐀 Ratthew | Rare | 1 / 130 | The old food court mascot. It still lives in the kitchens. |
+| 🎎 Walking Store Dummy | Rare | 1 / 130 | It only moves when nobody is looking. Keep looking. |
+| 👄 Mimic | Rare | 1 / 140 | That camera click wasn't your teammate. Neither were those footsteps. |
+| 🏬 Wrong Store | Rare | 1 / 140 | That store was never in this mall. It knows your name. |
+| 🕷️ Ceiling Crawler | Epic | 1 / 220 | Long legs, a human face, and it lives on the ceiling. If you hear crawling above you, don't look up. |
+| 🪞 Wrong Reflection | Epic | 1 / 260 | Your reflection is not copying you anymore. It is watching you. |
+| 🧟 Possessed Customer | Epic | 1 / 290 | The last customer never left. Something else is walking in them now. |
+| 😁 Smiling Entity | Epic | 1 / 290 | It never stops smiling. It only moves when you blink. |
+| 👤 Mirror Double | Epic | 1 / 310 | It stepped out of the mirror wearing your face. It follows you everywhere. |
+| 👥 Fake Player | Epic | 1 / 350 | It looks exactly like someone in this investigation. Almost exactly. |
+| 🚪 Impossible Hallway | Epic | 1 / 390 | The employee hallway used to end in a wall. Now it just keeps going. |
+| 🪪 Employee Only Entity | Mythic | 1 / 1,000 | EMPLOYEES ONLY. It still works the night shift. You are not staff. |
+| 👻 The One Behind You | Mythic | 1 / 1,000 | It follows one investigator closely. Whatever you do, do not turn around. |
+| 🦍 Parking Garage Stalker | Mythic | 1 / 1,000 | Something huge moves between the pillars on level B1. It is always one pillar closer. |
+| 😃 Smiling Player | Mythic | 1 / 1,000 | One investigator is smiling far too wide. They have no idea. |
+| 📷 The Photographer | Nightmare | 1 / 6,300 | It collects evidence too. Of you. |
+| 👁️ The Observer | Impossible | 1 / 210,000 | Look up through the skylight. It has always been looking down. |
+| 🕴️ The Night Manager | Unknown | 1 / ??? | Attention shoppers. The mall is now closed. |
 
-🔊 = reacts to sound (see [`docs/SOUND_DESIGN.md`](docs/SOUND_DESIGN.md#6-sound-reactive-anomalies)).
+Admin/test commands: `/spawn <Id>`, `/anomalies`, `/round start|end`, `/event surge|blackout|falsealarm|rare`,
+`/jumpscare <Kind>`, `/soundtest`, `/revive`, `/battery`, `/equipment`, `/phantom`, `/thunder`.
 
 Rarity tiers: Common, Unusual, Rare, Epic, Mythic, Nightmare, Impossible, ???
 (`RarityConfig`). Epic+ captures are announced to the server; Nightmare+
@@ -157,15 +193,13 @@ type-checked, and every remote is rate-limited.
 
 - Every script passes the `luau-lsp` type checker against the full Roblox API
   definitions, with a Rojo sourcemap so cross-module requires resolve.
-- The pure config/math modules (odds, stars, rewards, formatting) were run
-  under the standalone Luau runtime. For example, a new 3★ Rare pays exactly
-  $3,200 and The Observer shows "1 / 100,000".
-- Audio: a Luau test checks that all 185 `SoundConfig` paths have generated
-  audio and a fallback, that footsteps have 4-8 variations, the resolver
-  order (ids → loop file → bank region → fallback) and the required noise
-  values. A Python check decodes the banks and confirms every region contains
-  its sound with no bleed and that every loop is seamless.
-- The game has **not** been play-tested inside Roblox Studio yet, because
-  Studio is not available in the environment this was built in. Please run
-  through [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md) before
-  publishing.
+- `lune run tools/test/validate.luau` checks the baked maps against the
+  configs: every anomaly has its behaviour module, appearance and spawn
+  fixtures/markers in its zones, the ceiling crawler node graph, every sound
+  path used in code exists, lobby queue zones / stations / dark room, every
+  equipment model and skin builds, shop products point at real items.
+- Maps are baked with `lune run tools/bake/bake.luau` and were inspected with
+  an offline renderer.
+- The game has **not** been play-tested inside Roblox Studio (Studio is not
+  available in the environment this was built in): run through
+  [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md) before publishing.

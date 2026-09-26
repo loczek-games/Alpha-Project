@@ -2,6 +2,12 @@
   "name": "CaughtOnCamera",
   "tree": {
     "$className": "DataModel",
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "Loading": {
+        "$path": "src/ReplicatedFirst/Loading.client.lua"
+      }
+    },
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "Config": {

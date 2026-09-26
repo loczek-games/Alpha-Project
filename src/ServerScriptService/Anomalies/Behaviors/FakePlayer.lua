@@ -5,8 +5,13 @@
 	A copy of a real player in this server walks around the mall. It is
 	*subtly* wrong: its name is misspelled, it walks while facing the
 	nearest real player (moonwalking), and every few seconds its head
-	twists almost all the way around.
+	twists almost all the way around. Moves with Movers.Floor (pathfinding),
+	never pushes players (anomaly collision group).
 ]]
+
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local Movers = require(ServerScriptService:WaitForChild("Anomalies"):WaitForChild("Movers"))
 
 local FakePlayer = {}
 
@@ -35,14 +40,16 @@ function FakePlayer.Spawn(ctx, record)
 	humanoid.DisplayName = ctx.Kit.Misspell(original.DisplayName)
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
 	humanoid.NameDisplayDistance = 60
-	humanoid.WalkSpeed = record.Params.WalkSpeed or 9
-	humanoid.AutoRotate = false
+	for _, descendant in ipairs(rig:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CollisionGroup = ctx.Kit.CollisionGroup
+			descendant.CanTouch = false
+		end
+	end
 
-	rig:PivotTo(marker.CFrame + Vector3.new(0, 3, 0))
+	ctx.Kit.PlaceWalker(rig, marker.CFrame)
 	rig.Parent = ctx.Services.MapService.Folders.ActiveAnomalies
-	pcall(function()
-		root:SetNetworkOwner(nil)
-	end)
+	ctx.Kit.ClaimPhysics(rig)
 
 	local attachment = Instance.new("Attachment")
 	attachment.Parent = root
@@ -54,6 +61,8 @@ function FakePlayer.Spawn(ctx, record)
 	align.CFrame = root.CFrame.Rotation
 	align.Parent = root
 
+	local mover = Movers.Floor(rig, { AgentRadius = 2 })
+	mover:SetGait("Walk", record.Params.WalkSpeed or 9)
 	local neck = head:FindFirstChild("Neck")
 	record.Model = rig
 	record.Target = head
@@ -61,6 +70,9 @@ function FakePlayer.Spawn(ctx, record)
 		Humanoid = humanoid,
 		Root = root,
 		Align = align,
+		Mover = mover,
+		Wander = ctx.Services.MapService:GetMarkers({ "Floor", "Corridor" }, record.Def.Spawn.Zones),
+		NextThink = 0,
 		Neck = if neck and neck:IsA("Motor6D") then neck else nil,
 		NeckC0 = if neck and neck:IsA("Motor6D") then neck.C0 else nil,
 		Walk = ctx.Kit.LoadAnimation(humanoid, "Walk", true),
@@ -70,34 +82,32 @@ function FakePlayer.Spawn(ctx, record)
 	if record.State.Idle then
 		record.State.Idle:Play()
 	end
-
-	-- Movement brain: creep towards the nearest real player, stop a few studs away and stare.
-	local waypoints = ctx.Services.MapService:GetWaypoints(nil)
-	record.Cleaner:Add(task.spawn(function()
-		while rig.Parent do
-			local _, distance, targetRoot = ctx:GetNearestParticipant(root.Position, 45)
-			if targetRoot then
-				if distance > 8 then
-					local direction = (targetRoot.Position - root.Position) * Vector3.new(1, 0, 1)
-					humanoid:MoveTo(targetRoot.Position - direction.Unit * 7)
-				else
-					humanoid:MoveTo(root.Position)
-				end
-				task.wait(0.6)
-			elseif #waypoints > 0 then
-				humanoid:MoveTo(waypoints[math.random(1, #waypoints)].Position)
-				task.wait(3)
-			else
-				task.wait(1)
-			end
-		end
-	end))
 	return true
 end
 
 function FakePlayer.Update(ctx, record)
 	local state: any = record.State
 	local root: BasePart = state.Root
+	local mover = state.Mover
+	-- creep towards the nearest real player, stop a few studs away and stare
+	if os.clock() >= state.NextThink then
+		state.NextThink = os.clock() + 0.6
+		local _, distance, targetRoot = ctx:GetNearestParticipant(root.Position, 45)
+		if targetRoot then
+			if distance > 8 then
+				local direction = (targetRoot.Position - root.Position) * Vector3.new(1, 0, 1)
+				mover:MoveTo(targetRoot.Position - direction.Unit * 7)
+			else
+				mover:Stop()
+			end
+		elseif mover:Arrived() and #state.Wander > 0 then
+			mover:MoveTo(state.Wander[math.random(1, #state.Wander)].Position)
+			state.NextThink = os.clock() + 3
+		end
+	end
+	mover:Update(0)
+	-- moonwalk: the body keeps facing the player (AlignOrientation), not the path
+	state.Humanoid.AutoRotate = false
 	local _, _, _, targetHead = ctx:GetNearestParticipant(root.Position, 80)
 	if targetHead then
 		state.Align.CFrame = ctx.Kit.YawTowards(root.CFrame, targetHead.Position).Rotation

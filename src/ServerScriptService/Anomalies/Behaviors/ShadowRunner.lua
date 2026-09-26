@@ -23,7 +23,7 @@ function ShadowRunner.Spawn(ctx, record)
 		ArmSwing = 45,
 		LegSwing = 30,
 	})
-	local halfLength = marker.Size.Z / 2
+	local halfLength = (marker:GetAttribute("Length") or marker.Size.Z) / 2
 	local laneStart = marker.CFrame * CFrame.new(0, 0, halfLength)
 	local laneEnd = marker.CFrame * CFrame.new(0, 0, -halfLength)
 	figure.Model:PivotTo(CFrame.lookAt(laneStart.Position, laneEnd.Position))

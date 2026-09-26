@@ -3,7 +3,9 @@
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/DarkRoomController
 
 	Renders a player's showcase inside the DARK ROOM: their rarest discoveries
-	as framed evidence photos on the walls, a nameplate, and VIP decor.
+	as framed evidence photos on the walls, a nameplate, VIP gold frames and
+	the owner's purchased decor theme (safelight colour + props, see
+	CosmeticsConfig.Decor).
 	Rendering is local, so every visitor can browse a different player's room
 	(◀ ▶) at the same time in the same physical room.
 ]]
@@ -14,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = ReplicatedStorage:WaitForChild("Config")
 local RarityConfig = require(Config:WaitForChild("RarityConfig"))
+local CosmeticsConfig = require(Config:WaitForChild("CosmeticsConfig"))
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local Net = require(Modules:WaitForChild("Net"))
 local Format = require(Modules:WaitForChild("Format"))
@@ -22,6 +25,7 @@ local DarkRoomController = {}
 DarkRoomController.Owners = {}
 DarkRoomController.OwnerIndex = 1
 DarkRoomController.BorderColors = {}
+DarkRoomController.DecorId = nil
 
 local player = Players.LocalPlayer
 
@@ -106,6 +110,7 @@ function DarkRoomController:_leave()
 	self.Bar.Visible = false
 	self.SurfaceFolder:ClearAllChildren()
 	self:_applyVip(false)
+	self:_applyDecor(nil)
 end
 
 function DarkRoomController:_cycle(direction: number)
@@ -227,7 +232,9 @@ function DarkRoomController:_render(showcase, attempt: number?)
 			})
 		end
 	end
-	self:_applyVip(showcase.VIP == true)
+	local decor = CosmeticsConfig.Decor[showcase.Decor or "Classic"] or CosmeticsConfig.Decor.Classic
+	self:_applyVip(showcase.VIP == true or table.find(decor.Props, "GoldFrames") ~= nil)
+	self:_applyDecor(decor.Id)
 end
 
 -- VIP owners get gold frames (local-only colour change on the frame borders).
@@ -245,6 +252,182 @@ function DarkRoomController:_applyVip(vip: boolean)
 			local original = self.BorderColors[part]
 			part.Color = if vip then Color3.fromRGB(255, 200, 60) else original.Color
 			part.Material = if vip then Enum.Material.Metal else original.Material
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Decor (local only: each visitor sees the room of the owner they browse)
+---------------------------------------------------------------------------
+
+local function decoPart(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.CFrame = cframe
+	part.Color = color
+	part.Material = material or Enum.Material.SmoothPlastic
+	part.Shape = shape or Enum.PartType.Block
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Parent = parent
+	return part
+end
+
+local function glow(part: BasePart, color: Color3, brightness: number, range: number)
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Brightness = brightness
+	light.Range = range
+	light.Shadows = false
+	light.Parent = part
+end
+
+local function label(part: BasePart, face: Enum.NormalId, text: string, color: Color3, background: Color3?)
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = face
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.LightInfluence = 0.3
+	gui.Parent = part
+	local textLabel = Instance.new("TextLabel")
+	textLabel.Size = UDim2.fromScale(1, 1)
+	textLabel.BackgroundTransparency = if background then 0 else 1
+	textLabel.BackgroundColor3 = background or Color3.new()
+	textLabel.Text = text
+	textLabel.TextScaled = true
+	textLabel.Font = Enum.Font.GothamBlack
+	textLabel.TextColor3 = color
+	textLabel.Parent = gui
+end
+
+local DECOR_PROPS = {}
+
+function DECOR_PROPS.Tape(folder: Folder, base: CFrame)
+	local yellow = Color3.fromRGB(250, 205, 20)
+	for _, spec in ipairs({ { 11.2, 5.2, 6 }, { 11.2, 7.4, -5 }, { -12.2, 9.4, 4 } }) do
+		local strip = decoPart(folder, "CrimeTape", Vector3.new(34, 0.9, 0.06), base * CFrame.new(0, spec[2], spec[1]) * CFrame.Angles(0, 0, math.rad(spec[3])), yellow)
+		label(strip, Enum.NormalId.Front, "CRIME SCENE · DO NOT CROSS · CRIME SCENE · DO NOT CROSS", Color3.new(0.05, 0.05, 0.05))
+		label(strip, Enum.NormalId.Back, "CRIME SCENE · DO NOT CROSS · CRIME SCENE · DO NOT CROSS", Color3.new(0.05, 0.05, 0.05))
+	end
+end
+
+function DECOR_PROPS.Markers(folder: Folder, base: CFrame)
+	for index, spot in ipairs({ { -12, 2 }, { -6, 9 }, { 6, 2 }, { 12, 9 }, { 0, -6 } }) do
+		local tent = decoPart(folder, "EvidenceMarker", Vector3.new(0.9, 0.9, 0.7), base * CFrame.new(spot[1], 0.45, spot[2]) * CFrame.Angles(0, math.rad(index * 37), 0), Color3.fromRGB(250, 200, 20))
+		label(tent, Enum.NormalId.Front, tostring(index), Color3.new(0.05, 0.05, 0.05))
+		label(tent, Enum.NormalId.Back, tostring(index), Color3.new(0.05, 0.05, 0.05))
+	end
+end
+
+function DECOR_PROPS.Circle(folder: Folder, base: CFrame)
+	local center = base * CFrame.new(0, 0.03, 2)
+	local radius = 5
+	local segments = 28
+	local length = 2 * math.pi * radius / segments + 0.1
+	for index = 1, segments do
+		local angle = index / segments * math.pi * 2
+		decoPart(folder, "Chalk", Vector3.new(length, 0.04, 0.18), center * CFrame.Angles(0, angle, 0) * CFrame.new(0, 0, radius), Color3.fromRGB(235, 232, 225), Enum.Material.Neon).Transparency = 0.35
+	end
+	-- five-pointed star inside
+	for index = 0, 4 do
+		local a = math.rad(90 + index * 144)
+		local b = math.rad(90 + (index + 2) * 144)
+		local from = center * Vector3.new(math.cos(a) * radius, 0, math.sin(a) * radius)
+		local to = center * Vector3.new(math.cos(b) * radius, 0, math.sin(b) * radius)
+		local line = decoPart(folder, "Chalk", Vector3.new(0.14, 0.04, (to - from).Magnitude), CFrame.lookAt((from + to) / 2, to), Color3.fromRGB(235, 232, 225), Enum.Material.Neon)
+		line.Transparency = 0.45
+	end
+end
+
+function DECOR_PROPS.Candles(folder: Folder, base: CFrame)
+	local spots = {}
+	for index = 0, 4 do
+		local a = math.rad(90 + index * 72)
+		table.insert(spots, CFrame.new(math.cos(a) * 5.8, 0, 2 + math.sin(a) * 5.8))
+	end
+	table.insert(spots, CFrame.new(-4, 3.2, -10))
+	table.insert(spots, CFrame.new(-3.2, 3.2, -10.6))
+	table.insert(spots, CFrame.new(4.5, 3.2, -10.3))
+	for index, offset in ipairs(spots) do
+		local height = 0.8 + (index % 3) * 0.35
+		local candle = decoPart(folder, "Candle", Vector3.new(height, 0.35, 0.35), base * offset * CFrame.new(0, height / 2, 0) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(230, 220, 200), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		local flame = decoPart(folder, "Flame", Vector3.new(0.14, 0.3, 0.14), candle.CFrame * CFrame.Angles(0, 0, math.rad(-90)) * CFrame.new(0, height / 2 + 0.16, 0), Color3.fromRGB(255, 170, 70), Enum.Material.Neon)
+		glow(flame, Color3.fromRGB(255, 150, 60), 0.9, 7)
+	end
+end
+
+function DECOR_PROPS.Monitors(folder: Folder, base: CFrame)
+	local green = Color3.fromRGB(80, 255, 140)
+	local camera = 1
+	for row = 0, 1 do
+		for column = 0, 3 do
+			local cf = base * CFrame.new(18.4, 4.2 + row * 3, -6 + column * 4) * CFrame.Angles(0, math.rad(90), 0)
+			decoPart(folder, "Monitor", Vector3.new(3.6, 2.7, 1.2), cf, Color3.fromRGB(24, 24, 26), Enum.Material.Metal)
+			local screen = decoPart(folder, "Screen", Vector3.new(3.2, 2.3, 0.05), cf * CFrame.new(0, 0, -0.62), Color3.fromRGB(10, 40, 20), Enum.Material.Neon)
+			label(screen, Enum.NormalId.Front, string.format("CAM %02d  ● REC", camera), green, Color3.fromRGB(6, 22, 12))
+			camera += 1
+		end
+	end
+	local fill = decoPart(folder, "MonitorGlow", Vector3.new(0.2, 0.2, 0.2), base * CFrame.new(16, 6, 0), green)
+	fill.Transparency = 1
+	glow(fill, green, 1.2, 22)
+end
+
+function DECOR_PROPS.GoldFrames(folder: Folder, base: CFrame)
+	local plaque = decoPart(folder, "VIPPlaque", Vector3.new(6, 1.2, 0.2), base * CFrame.new(0, 11.6, -12.3), Color3.fromRGB(255, 200, 60), Enum.Material.Metal)
+	label(plaque, Enum.NormalId.Back, "★ VIP GALLERY ★", Color3.fromRGB(40, 24, 0))
+	label(plaque, Enum.NormalId.Front, "★ VIP GALLERY ★", Color3.fromRGB(40, 24, 0))
+end
+
+function DarkRoomController:_applyDecor(decorId: string?)
+	if decorId == self.DecorId then
+		return
+	end
+	self.DecorId = decorId
+	if self.DecorFolder then
+		self.DecorFolder:Destroy()
+		self.DecorFolder = nil
+	end
+	local lobby = workspace:FindFirstChild("Lobby")
+	local room = lobby and lobby:FindFirstChild("DarkRoom", true)
+	local safelight = room and room:FindFirstChild("Safelight")
+	if not safelight or not safelight:IsA("BasePart") then
+		return
+	end
+	if not self.SafelightOriginal then
+		local light = safelight:FindFirstChildOfClass("PointLight")
+		self.SafelightOriginal = { Color = safelight.Color, Light = if light then light.Color else nil }
+	end
+	local decor = if decorId then CosmeticsConfig.Decor[decorId] else nil
+	local color = if decor then decor.Safelight else self.SafelightOriginal.Color
+	safelight.Color = color
+	local light = safelight:FindFirstChildOfClass("PointLight")
+	if light then
+		light.Color = if decor then decor.Safelight else (self.SafelightOriginal.Light or color)
+	end
+	self.Controllers.LightingController:SetSafelight(if decor then decor.Safelight else Color3.fromRGB(255, 40, 30))
+	if not decor or #decor.Props == 0 then
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "DarkRoomDecor"
+	folder.Parent = workspace
+	self.DecorFolder = folder
+	-- props are laid out relative to the safelight (room centre, 14.5 studs above the floor)
+	local base = safelight.CFrame * CFrame.new(0, -14.5, 0)
+	for _, prop in ipairs(decor.Props) do
+		local build = DECOR_PROPS[prop]
+		if build then
+			local ok, err = pcall(build, folder, base)
+			if not ok then
+				warn("[DarkRoom] decor prop failed:", prop, err)
+			end
 		end
 	end
 end

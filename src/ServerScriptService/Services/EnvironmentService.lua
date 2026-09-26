@@ -14,7 +14,6 @@
 	            "Was that my teammate?"
 ]]
 
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -104,12 +103,17 @@ function EnvironmentService:HVACBurst()
 end
 
 function EnvironmentService:RingPhone()
-	local phones = CollectionService:GetTagged("Payphone")
-	local phone = phones[1]
-	if not phone or not phone:IsA("Model") or not phone.PrimaryPart then
+	local phones = {}
+	for _, phone in ipairs(self.Services.MapService:GetFixtures("Payphone")) do
+		if phone:IsA("Model") and phone.PrimaryPart and not phone:GetAttribute("Ringing") then
+			table.insert(phones, phone)
+		end
+	end
+	if #phones == 0 then
 		return
 	end
-	local body = phone.PrimaryPart
+	local phone = phones[math.random(1, #phones)]
+	local body = phone.PrimaryPart :: BasePart
 	phone:SetAttribute("Ringing", true)
 	for _ = 1, ENV.Phone.Rings do
 		if not self.Running or not phone:GetAttribute("Ringing") then

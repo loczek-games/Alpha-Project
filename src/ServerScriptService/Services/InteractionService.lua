@@ -223,6 +223,59 @@ function InteractionService:_closeDoor(state, player: Player, slam: boolean)
 	end)
 end
 
+-- Anomalies (Possessed Door, lockers) open / close / slam doors by themselves.
+function InteractionService:ForceDoor(instance: Instance, open: boolean, slam: boolean?)
+	local door = self.Doors[instance]
+	if door then
+		if door.Busy or door.Open == open then
+			return
+		end
+		door.Busy = true
+		local audio = self.Services.AudioService
+		local sounds = "Door." .. door.Type
+		local t
+		if open then
+			audio:Play(sounds .. ".Creak", door.Panel, {})
+			t = tween(door.Hinge, 1.6, { CFrame = door.Closed * CFrame.Angles(0, math.rad(80), 0) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+		elseif slam then
+			t = tween(door.Hinge, 0.16, { CFrame = door.Closed }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			task.delay(0.14, function()
+				audio:Play(sounds .. ".Slam", door.Panel, {})
+				self.Services.NoiseService:Emit(door.Panel.Position, 0.5, "DoorSlam", nil)
+			end)
+		else
+			t = tween(door.Hinge, 1.2, { CFrame = door.Closed }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+			task.delay(1.1, function()
+				audio:Play(sounds .. ".Close", door.Panel, {})
+			end)
+		end
+		door.Open = open
+		self:_refreshDoorPrompts(door)
+		t.Completed:Once(function()
+			door.Busy = false
+		end)
+		return
+	end
+	local container = self.Containers[instance]
+	if container and container.Kind == "Locker" then
+		if container.Open == open then
+			return
+		end
+		container.Open = open
+		container.Prompt.ActionText = if open then "Close" else "Open"
+		local audio = self.Services.AudioService
+		if open then
+			audio:Play("Interaction.LockerOpen", container.Panel, {})
+			tween(container.Hinge, if slam then 0.15 else 0.6, { CFrame = container.Closed * CFrame.Angles(0, math.rad(105), 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		else
+			tween(container.Hinge, if slam then 0.12 else 0.4, { CFrame = container.Closed }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			task.delay(0.1, function()
+				audio:Play(if slam then "Door.Locker.Slam" else "Interaction.LockerClose", container.Panel, {})
+			end)
+		end
+	end
+end
+
 -- Lets anomalies (Mimic) and phantom sounds find a real door.
 function InteractionService:GetNearestDoor(position: Vector3, maxDistance: number)
 	local best, bestDistance = nil, maxDistance

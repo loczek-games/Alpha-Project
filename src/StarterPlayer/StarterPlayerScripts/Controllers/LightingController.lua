@@ -105,6 +105,23 @@ function LightingController:Start()
 	self:Refresh(true)
 end
 
+-- The Dark Room's grade follows the owner's decor safelight colour.
+function LightingController:SetSafelight(color: Color3)
+	local preset = PRESETS.DarkRoom
+	local function scale(k: number): Color3
+		return Color3.new(color.R * k, color.G * k, color.B * k)
+	end
+	preset.Lighting.Ambient = scale(0.16)
+	preset.Lighting.OutdoorAmbient = scale(0.08)
+	preset.Atmosphere.Color = scale(0.24)
+	preset.Atmosphere.Decay = scale(0.12)
+	preset.Grade.TintColor = Color3.new(1, 1, 1):Lerp(color, 0.14)
+	if self.Preset == "DarkRoom" then
+		self.Preset = nil
+		self:Refresh()
+	end
+end
+
 function LightingController:_wanted(): string
 	local state = self.Controllers.ClientState
 	if state.InDarkRoom then

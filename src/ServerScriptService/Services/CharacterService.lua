@@ -123,6 +123,16 @@ function CharacterService:_setupCharacter(player: Player, character: Model)
 		player:SetAttribute("Downed", false)
 	end
 	humanoid.BreakJointsOnDeath = false
+	-- anomalies (COCAnomaly group) never collide with investigators
+	local function group(descendant: Instance)
+		if descendant:IsA("BasePart") then
+			descendant.CollisionGroup = "COCPlayer"
+		end
+	end
+	for _, descendant in ipairs(character:GetDescendants()) do
+		group(descendant)
+	end
+	character.DescendantAdded:Connect(group)
 	self:_applySpeed(player)
 	local inMission = player:GetAttribute("InMission") == true
 	self:_applyCamera(player, inMission)

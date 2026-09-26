@@ -530,7 +530,7 @@ function EquipmentController:_updateOwnItems()
 	if residueFolder and (uvOn or self.UVWasOn) then
 		local config = EquipmentConfig.Items.UVLight
 		local tool = player.Character and player.Character:FindFirstChild("UVLight")
-		local handle = tool and tool:FindFirstChild("Handle")
+		local handle = tool and tool:FindFirstChild("BeamEmitter", true)
 		local beamOrigin = if handle and handle:IsA("BasePart") then handle.Position else origin
 		local beamLook = if handle and handle:IsA("BasePart") then handle.CFrame.LookVector else look
 		for _, residue in ipairs(residueFolder:GetChildren()) do

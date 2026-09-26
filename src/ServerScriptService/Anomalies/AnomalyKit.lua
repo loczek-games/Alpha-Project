@@ -3,9 +3,10 @@
 	Location: ServerScriptService/Anomalies/AnomalyKit
 
 	Shared building blocks for anomaly behaviour modules: parts, welded
-	models, humanoid silhouettes, fades, sounds, avatar clones.
-	All anomaly geometry is anchored (or welded to an anchored root) and
-	non-colliding, so anomalies never create physics work on mobile.
+	models, jointed bodies (Figure / Body / Walker), fades, sounds, avatar
+	clones. Static anomalies are anchored (or welded to an anchored root);
+	walkers are server-owned physics bodies in the "COCAnomaly" collision
+	group, which never collides with investigators.
 ]]
 
 local Players = game:GetService("Players")
@@ -14,8 +15,12 @@ local TweenService = game:GetService("TweenService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameConfig"))
 
+local Rig = require(script.Parent:WaitForChild("Rig"))
+
 local Kit = {}
 Kit.Audio = nil :: any -- set by AnomalyService (AudioService)
+Kit.Appearance = nil :: any -- set by AnomalyService (Appearance)
+Kit.CollisionGroup = "COCAnomaly"
 
 function Kit.Model(name: string): Model
 	local model = Instance.new("Model")
@@ -135,109 +140,135 @@ function Kit.PlaySound3D(where: any, path: string, _maxDistance: number?, playba
 	end
 end
 
---[[
-	A tall stylised silhouette built from blocks, feet at the model origin,
-	facing -Z. Options: Height, Thin, Color, HeadColor, EyeColor, EyeGlow,
-	Material, ArmLength, ArmSwing, LegSwing, Name.
-]]
-function Kit.Figure(opts: { [string]: any })
-	local height = opts.Height or 7
-	local thin = opts.Thin or 1
-	local color = opts.Color or Color3.fromRGB(12, 12, 14)
-	local headColor = opts.HeadColor or color
-	local material = opts.Material or Enum.Material.SmoothPlastic
+local function feetRoot(model: Model, rigRoot: BasePart, groundY: number): BasePart
+	-- an anchored "Root" at the feet drives the whole (welded) rig, so old
+	-- behaviours can keep tweening Root.CFrame at floor level
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(1, 0.2, 1)
+	root.Transparency = 1
+	root.CanCollide = false
+	root.CanQuery = false
+	root.CanTouch = false
+	root.Anchored = true
+	root.CFrame = CFrame.new(rigRoot.Position.X, groundY + 0.1, rigRoot.Position.Z)
+	root.Parent = model
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = root
+	weld.Part1 = rigRoot
+	weld.Parent = rigRoot
+	model.PrimaryPart = root
+	return root
+end
 
-	local model = Kit.Model(opts.Name or "Figure")
-	local root = Kit.Part(model, {
-		Name = "Root",
-		Size = Vector3.new(1, 0.2, 1),
-		CFrame = CFrame.new(0, 0.1, 0),
-		Transparency = 1,
-		CanQuery = false,
-	})
-
-	local legH, torsoH, headS = 0.46 * height, 0.32 * height, 0.14 * height
-	local torsoW, torsoD = 0.26 * height * thin, 0.13 * height * thin
-	local legW = 0.1 * height * thin
-	local armW, armH = 0.075 * height * thin, (opts.ArmLength or 0.42) * height
-	local legSwing = math.rad(opts.LegSwing or 0)
-	local armSwing = math.rad(opts.ArmSwing or 0)
-
-	local hipY = legH
-	local leftLeg = Kit.Part(model, {
-		Name = "LeftLeg",
-		Size = Vector3.new(legW, legH, legW),
-		CFrame = CFrame.new(-0.06 * height * thin, hipY, 0) * CFrame.Angles(legSwing, 0, 0) * CFrame.new(0, -legH / 2, 0),
-		Color = color,
-		Material = material,
-	})
-	local rightLeg = Kit.Part(model, {
-		Name = "RightLeg",
-		Size = Vector3.new(legW, legH, legW),
-		CFrame = CFrame.new(0.06 * height * thin, hipY, 0) * CFrame.Angles(-legSwing, 0, 0) * CFrame.new(0, -legH / 2, 0),
-		Color = color,
-		Material = material,
-	})
-	local torso = Kit.Part(model, {
-		Name = "Torso",
-		Size = Vector3.new(torsoW, torsoH, torsoD),
-		CFrame = CFrame.new(0, legH + torsoH / 2, 0),
-		Color = color,
-		Material = material,
-	})
-	local shoulderY = legH + torsoH - 0.03 * height
-	local armX = torsoW / 2 + armW / 2 + 0.01 * height
-	local leftArm = Kit.Part(model, {
-		Name = "LeftArm",
-		Size = Vector3.new(armW, armH, armW),
-		CFrame = CFrame.new(-armX, shoulderY, 0) * CFrame.Angles(armSwing, 0, 0) * CFrame.new(0, -armH / 2, 0),
-		Color = color,
-		Material = material,
-	})
-	local rightArm = Kit.Part(model, {
-		Name = "RightArm",
-		Size = Vector3.new(armW, armH, armW),
-		CFrame = CFrame.new(armX, shoulderY, 0) * CFrame.Angles(-armSwing, 0, 0) * CFrame.new(0, -armH / 2, 0),
-		Color = color,
-		Material = material,
-	})
-	local head = Kit.Part(model, {
-		Name = "Head",
-		Size = Vector3.new(headS, headS * 1.12, headS),
-		CFrame = CFrame.new(0, legH + torsoH + headS * 0.62, 0),
-		Color = headColor,
-		Material = material,
-	})
-
-	local eyes = {}
-	if opts.EyeColor then
-		for _, side in ipairs({ -1, 1 }) do
-			local eye = Kit.Part(model, {
-				Name = "Eye",
-				Shape = Enum.PartType.Ball,
-				Size = Vector3.new(headS * 0.2, headS * 0.2, headS * 0.2),
-				CFrame = head.CFrame * CFrame.new(side * headS * 0.22, headS * 0.08, -headS / 2 - 0.02),
-				Color = opts.EyeColor,
-				Material = if opts.EyeGlow == false then Enum.Material.SmoothPlastic else Enum.Material.Neon,
-				CanQuery = false,
-			})
-			table.insert(eyes, eye)
+local function anchoredBody(model: Model)
+	local rigRoot = model:FindFirstChild("HumanoidRootPart") :: BasePart
+	local groundY = math.huge
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = false
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			groundY = math.min(groundY, descendant.Position.Y - descendant.Size.Y / 2)
 		end
 	end
-
-	Kit.Weld(model, root)
+	local root = feetRoot(model, rigRoot, if groundY == math.huge then 0 else groundY)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.PlatformStand = true
+	end
+	local function find(...)
+		for _, name in ipairs({ ... }) do
+			local found = model:FindFirstChild(name)
+			if found and found:IsA("BasePart") then
+				return found
+			end
+		end
+		return rigRoot
+	end
 	return {
 		Model = model,
 		Root = root,
-		Torso = torso,
-		Head = head,
-		LeftArm = leftArm,
-		RightArm = rightArm,
-		LeftLeg = leftLeg,
-		RightLeg = rightLeg,
-		Eyes = eyes,
-		Height = height,
+		Torso = find("UpperTorso", "Torso"),
+		Head = find("Head"),
+		LeftArm = find("LeftUpperArm", "Left Arm"),
+		RightArm = find("RightUpperArm", "Right Arm"),
+		LeftLeg = find("LeftUpperLeg", "Left Leg"),
+		RightLeg = find("RightUpperLeg", "Right Leg"),
+		Eyes = {},
+		Height = model:GetExtentsSize().Y,
 	}
+end
+
+--[[
+	A tall stylised silhouette: a jointed R15-style rig (Rig.Humanoid) the
+	client animates, feet at the model origin, facing -Z, driven by an
+	anchored Root at the feet. Options: Height, Thin, Color, HeadColor,
+	EyeColor, EyeGlow, Material, ArmLength, Name, Face.
+]]
+function Kit.Figure(opts: { [string]: any })
+	local color = opts.Color or Color3.fromRGB(12, 12, 14)
+	local rig = Rig.Humanoid({
+		Name = opts.Name or "Figure",
+		Height = opts.Height or 7,
+		Thin = opts.Thin,
+		ArmLength = if opts.ArmLength then opts.ArmLength / 0.42 else nil,
+		Skin = opts.HeadColor or color,
+		Shirt = color,
+		Pants = color,
+		Shoes = color,
+		Material = opts.Material,
+		Face = opts.Face or (if opts.EyeColor then "Eyes" else "Blank"),
+		EyeColor = opts.EyeColor,
+		Hunch = opts.Hunch,
+	})
+	local head = rig:FindFirstChild("Head") :: BasePart
+	head.Color = opts.HeadColor or color
+	local body = anchoredBody(rig)
+	body.Model:PivotTo(CFrame.new())
+	return body
+end
+
+-- A catalog / override / procedural body (Appearance) driven by an anchored feet Root.
+function Kit.Body(appearanceName: string)
+	local model = Kit.Appearance:Get(appearanceName)
+	return anchoredBody(model)
+end
+
+-- A free-walking body for Movers.Floor (unanchored Humanoid, server physics owner).
+function Kit.Walker(appearanceName: string): Model
+	local model = Kit.Appearance:Get(appearanceName)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = false
+			descendant.CanTouch = false
+			descendant.CollisionGroup = Kit.CollisionGroup
+			local name = descendant.Name
+			descendant.CanCollide = name == "UpperTorso" or name == "LowerTorso" or name == "Torso" or name == "HumanoidRootPart"
+		end
+	end
+	return model
+end
+
+-- Puts a walker's feet on a floor CFrame.
+function Kit.PlaceWalker(model: Model, floor: CFrame)
+	local humanoid = model:FindFirstChildOfClass("Humanoid") :: Humanoid
+	local root = model:FindFirstChild("HumanoidRootPart") :: BasePart
+	local height = if humanoid then humanoid.HipHeight + root.Size.Y / 2 else 3
+	local offset = model:GetPivot():ToObjectSpace(root.CFrame)
+	model:PivotTo(floor * CFrame.new(0, height, 0) * offset:Inverse())
+end
+
+-- Server owns the physics of anomalies (no client can push them around).
+function Kit.ClaimPhysics(model: Model)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") and not descendant.Anchored then
+			pcall(function()
+				descendant:SetNetworkOwner(nil)
+			end)
+			break
+		end
+	end
 end
 
 -- R15 copy of a player's current avatar (yields while assets load).

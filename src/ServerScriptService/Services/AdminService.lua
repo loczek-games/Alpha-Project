@@ -17,6 +17,10 @@
 	  /thunder                lightning + thunder (masks player noise)
 	  /battery                refill all of your equipment batteries
 	  /equipment              unlock every piece of equipment (Studio only)
+	  /soundtest              print the audio report + play one sound of every family
+	  /jumpscare [kind]       preview a jumpscare on yourself (no damage)
+	                          (CeilingCrawler, Titan, Smile, Possessed, Slacker, Listener, Mannequin, Shadow)
+	  /revive                 get back up if you are downed
 ]]
 
 local Players = game:GetService("Players")
@@ -49,7 +53,7 @@ function AdminService:Init(services)
 	local ok, err = pcall(function()
 		local folder = Instance.new("Folder")
 		folder.Name = "CaughtOnCameraCommands"
-		for _, name in ipairs({ "spawn", "event", "round", "evidence", "anomalies", "resetdata", "phantom", "thunder", "battery", "equipment" }) do
+		for _, name in ipairs({ "spawn", "event", "round", "evidence", "anomalies", "resetdata", "phantom", "thunder", "battery", "equipment", "soundtest", "jumpscare", "revive" }) do
 			local command = Instance.new("TextChatCommand")
 			command.Name = "COC_" .. name
 			command.PrimaryAlias = "/" .. name
@@ -194,6 +198,19 @@ function AdminService:_run(player: Player, message: string)
 			services.DataService:MarkChanged(player)
 			services.EquipmentService:RefreshTools(player)
 			self:_reply(player, "All equipment unlocked")
+		end
+	elseif command == "soundtest" then
+		services.AnomalyService:FireFx(player, { Type = "SoundTest" })
+		self:_reply(player, "Audio report printed to the client Output (F9)")
+	elseif command == "jumpscare" then
+		services.AnomalyService:FireFx(player, { Type = "Jumpscare", Kind = args[2] or "Generic", Preview = true })
+		self:_reply(player, "Jumpscare preview: " .. (args[2] or "Generic"))
+	elseif command == "revive" then
+		if player:GetAttribute("Downed") then
+			services.CharacterService:Revive(player, nil, false)
+			self:_reply(player, "Revived")
+		else
+			self:_reply(player, "You are not downed")
 		end
 	elseif command == "resetdata" then
 		if not RunService:IsStudio() then
