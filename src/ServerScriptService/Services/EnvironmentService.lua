@@ -91,10 +91,9 @@ function EnvironmentService:Thunder()
 end
 
 function EnvironmentService:HVACBurst()
-	local zones = { "Bathrooms", "StorageHallway", "ParkingGarage", "FoodCourt", "Arcade", "Cinema" }
+	local zones = { "Restrooms", "ServiceHalls", "ParkingGarage", "FoodCourt", "Arcade", "Cinema", "BackOfHouse", "Supermarket" }
 	local zoneId = zones[math.random(1, #zones)]
-	local mall = self.Services.MapService.Folders.DeadMall
-	local zonesModel = mall:FindFirstChild("Zones")
+	local zonesModel = self.Services.MapService.Folders.Zones
 	local bounds = zonesModel and zonesModel:FindFirstChild(zoneId)
 	if not bounds or not bounds:IsA("BasePart") then
 		return

@@ -22,7 +22,11 @@ local RunService = game:GetService("RunService")
 local Config = ReplicatedStorage:WaitForChild("Config")
 local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
 local CameraConfig = require(Config:WaitForChild("CameraConfig"))
-local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
+local CosmeticsConfig = require(Config:WaitForChild("CosmeticsConfig"))
+local MonetizationConfig = require(Config:WaitForChild("MonetizationConfig"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Net = require(Modules:WaitForChild("Net"))
+local EquipmentModels = require(Modules:WaitForChild("EquipmentModels"))
 
 local EquipmentService = {}
 EquipmentService.State = {}
@@ -37,7 +41,8 @@ local TOGGLE_SOUNDS = {
 local LIGHT_ITEMS = { Flashlight = true, UVLight = true }
 
 ---------------------------------------------------------------------------
--- Tool construction
+-- Tool construction (models come from ReplicatedStorage/Modules/EquipmentModels,
+-- the same builder the first-person viewmodel uses)
 ---------------------------------------------------------------------------
 
 local function prop(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
@@ -53,93 +58,13 @@ local function prop(parent: Instance, name: string, size: Vector3, cframe: CFram
 	p.CanTouch = false
 	p.CastShadow = false
 	p.Massless = true
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
 	p.Parent = parent
 	return p
 end
 
-local function weldAll(tool: Tool, handle: BasePart)
-	for _, child in ipairs(tool:GetChildren()) do
-		if child:IsA("BasePart") and child ~= handle then
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = handle
-			weld.Part1 = child
-			weld.Parent = child
-		end
-	end
-end
-
--- Builders place the handle at the origin, device front = -Z, up = +Y.
-local BUILDERS = {}
-
-function BUILDERS.Camera(tool: Tool, skin)
-	local handle = prop(tool, "Handle", Vector3.new(1.1, 0.72, 0.5), CFrame.new(), skin.Body, skin.Material)
-	prop(tool, "Lens", Vector3.new(0.35, 0.5, 0.5), CFrame.new(0, -0.02, -0.4) * CFrame.Angles(0, math.pi / 2, 0), skin.Accent, Enum.Material.Metal, Enum.PartType.Cylinder)
-	prop(tool, "Glass", Vector3.new(0.05, 0.38, 0.38), CFrame.new(0, -0.02, -0.59) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(40, 60, 90), Enum.Material.Glass, Enum.PartType.Cylinder)
-	local bulb = prop(tool, "FlashBulb", Vector3.new(0.3, 0.16, 0.08), CFrame.new(0.32, 0.26, -0.27), Color3.fromRGB(240, 240, 255), Enum.Material.Neon)
-	prop(tool, "Button", Vector3.new(0.18, 0.08, 0.18), CFrame.new(-0.3, 0.39, 0), Color3.fromRGB(220, 60, 60))
-	local flash = Instance.new("PointLight")
-	flash.Name = "Flash"
-	flash.Enabled = false
-	flash.Brightness = 8
-	flash.Range = 18
-	flash.Color = Color3.fromRGB(235, 240, 255)
-	flash.Shadows = false
-	flash.Parent = bulb
-	return handle
-end
-
-local function buildTorch(tool: Tool, bodyColor: Color3, lensColor: Color3, lightConfig)
-	local handle = prop(tool, "Handle", Vector3.new(0.42, 0.42, 1.5), CFrame.new(), bodyColor, Enum.Material.Metal)
-	prop(tool, "Head", Vector3.new(0.45, 0.66, 0.66), CFrame.new(0, 0, -0.95) * CFrame.Angles(0, math.pi / 2, 0), bodyColor, Enum.Material.Metal, Enum.PartType.Cylinder)
-	prop(tool, "Lens", Vector3.new(0.06, 0.55, 0.55), CFrame.new(0, 0, -1.2) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(70, 70, 75), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder):SetAttribute("OnColor", lensColor)
-	prop(tool, "Switch", Vector3.new(0.14, 0.08, 0.22), CFrame.new(0, 0.23, -0.2), Color3.fromRGB(30, 30, 30))
-	local beam = Instance.new("SpotLight")
-	beam.Name = "Beam"
-	beam.Face = Enum.NormalId.Front
-	beam.Enabled = false
-	beam.Brightness = lightConfig.Brightness
-	beam.Range = lightConfig.Range
-	beam.Angle = lightConfig.Angle
-	beam.Color = lightConfig.Color
-	beam.Shadows = false
-	beam.Parent = handle
-	return handle
-end
-
-function BUILDERS.Flashlight(tool: Tool)
-	return buildTorch(tool, Color3.fromRGB(35, 35, 40), Color3.fromRGB(255, 245, 215), EquipmentConfig.Items.Flashlight.Light)
-end
-
-function BUILDERS.UVLight(tool: Tool)
-	return buildTorch(tool, Color3.fromRGB(45, 25, 70), Color3.fromRGB(170, 90, 255), EquipmentConfig.Items.UVLight.Light)
-end
-
-function BUILDERS.EMF(tool: Tool)
-	local handle = prop(tool, "Handle", Vector3.new(0.7, 1.2, 0.28), CFrame.new(), Color3.fromRGB(230, 200, 40))
-	prop(tool, "Face", Vector3.new(0.6, 0.55, 0.05), CFrame.new(0, 0.2, -0.16), Color3.fromRGB(20, 20, 22))
-	local colors = {
-		Color3.fromRGB(80, 255, 90),
-		Color3.fromRGB(170, 255, 70),
-		Color3.fromRGB(255, 230, 60),
-		Color3.fromRGB(255, 150, 40),
-		Color3.fromRGB(255, 50, 40),
-	}
-	for index = 1, 5 do
-		local led = prop(tool, "LED" .. index, Vector3.new(0.09, 0.09, 0.05), CFrame.new(-0.24 + (index - 1) * 0.12, 0.38, -0.19), Color3.fromRGB(40, 40, 40))
-		led:SetAttribute("OnColor", colors[index])
-	end
-	prop(tool, "Antenna", Vector3.new(0.07, 0.55, 0.07), CFrame.new(0.26, 0.85, 0), Color3.fromRGB(30, 30, 30))
-	return handle
-end
-
-function BUILDERS.Thermal(tool: Tool)
-	local handle = prop(tool, "Handle", Vector3.new(0.85, 0.85, 0.55), CFrame.new(), Color3.fromRGB(60, 62, 70))
-	prop(tool, "Screen", Vector3.new(0.65, 0.45, 0.05), CFrame.new(0, 0.12, 0.29), Color3.fromRGB(255, 110, 40), Enum.Material.Neon)
-	prop(tool, "Lens", Vector3.new(0.3, 0.42, 0.42), CFrame.new(0, 0.1, -0.4) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(20, 20, 20), Enum.Material.Glass, Enum.PartType.Cylinder)
-	prop(tool, "Grip", Vector3.new(0.3, 0.6, 0.35), CFrame.new(0, -0.62, 0.05), Color3.fromRGB(35, 35, 40))
-	return handle
+local function beamOf(tool: Instance): SpotLight?
+	local beam = tool:FindFirstChild("Beam", true)
+	return if beam and beam:IsA("SpotLight") then beam else nil
 end
 
 ---------------------------------------------------------------------------
@@ -226,8 +151,24 @@ function EquipmentService:Owns(player: Player, itemId: string): boolean
 	if item.Price == 0 then
 		return true
 	end
+	local monetization = self.Services.MonetizationService
+	if monetization then
+		for passKey, items in pairs(MonetizationConfig.PassEquipment) do
+			if table.find(items, itemId) and monetization:HasPass(player, passKey) then
+				return true
+			end
+		end
+	end
 	local data = self.Services.DataService:GetData(player)
 	return data ~= nil and data.OwnedEquipment ~= nil and data.OwnedEquipment[itemId] == true
+end
+
+-- Flashlight / UV stats after bench upgrades + the Tactical Flashlight pass.
+function EquipmentService:GetLightStats(player: Player, itemId: string)
+	local data = self.Services.DataService:GetData(player)
+	local monetization = self.Services.MonetizationService
+	local tactical = monetization ~= nil and monetization:HasPass(player, "TacticalFlashlight")
+	return EquipmentConfig.GetLightStats(itemId, data and data.FlashlightUpgrades or nil, tactical)
 end
 
 function EquipmentService:GetEquippedTool(player: Player): Tool?
@@ -278,15 +219,24 @@ function EquipmentService:GetHandle(player: Player, itemId: string): BasePart?
 	return nil
 end
 
-function EquipmentService:_cameraSkin(player: Player)
-	local economy = self.Services.EconomyService
-	local cameraId = if economy then economy:GetEquippedCameraId(player) else CameraConfig.DefaultCamera
-	local def = CameraConfig.Get(cameraId) or CameraConfig.Get(CameraConfig.DefaultCamera)
-	if player:GetAttribute("VIP") then
-		local skin = CameraConfig.Skins.VIP
-		return { Body = skin.BodyColor, Accent = skin.AccentColor, Material = skin.Material }
+-- Skin for a hand item: the equipped cosmetic, or the look of the equipped camera.
+function EquipmentService:GetSkin(player: Player, itemId: string)
+	local data = self.Services.DataService:GetData(player)
+	local slot = if itemId == "UVLight" or itemId == "Thermal" then nil else itemId
+	local skinId = if slot and data then data.Cosmetics.Equipped[slot] else nil
+	local monetization = self.Services.MonetizationService
+	local skin = CosmeticsConfig.GetSkin(skinId)
+	if skin and not skin.Free and monetization and monetization:OwnsCosmetic(player, skin.Id) then
+		return skin
 	end
-	return { Body = def.BodyColor, Accent = def.AccentColor, Material = Enum.Material.SmoothPlastic }
+	if itemId == "Camera" then
+		local economy = self.Services.EconomyService
+		local cameraId = if economy then economy:GetEquippedCameraId(player) else CameraConfig.DefaultCamera
+		local def = CameraConfig.Get(cameraId) or CameraConfig.Get(CameraConfig.DefaultCamera)
+		local base = EquipmentModels.DefaultSkin("Camera")
+		return { Body = def.BodyColor, Accent = base.Accent, Trim = def.AccentColor, Material = base.Material }
+	end
+	return (if skin then skin else nil) or EquipmentModels.DefaultSkin(itemId)
 end
 
 -- (Re)builds the player's equipment tools. Keeps the currently held item in hand.
@@ -298,7 +248,8 @@ function EquipmentService:RefreshTools(player: Player)
 		return
 	end
 	local held = self:GetEquippedTool(player)
-	local heldId = if held then held.Name else "Camera"
+	local inMission = player:GetAttribute("InMission") == true
+	local heldId = if held then held.Name elseif inMission then "Camera" else nil
 	for _, container in ipairs({ backpack, character }) do
 		for _, child in ipairs(container:GetChildren()) do
 			if child:IsA("Tool") and child:GetAttribute("COCEquipment") then
@@ -321,8 +272,33 @@ function EquipmentService:RefreshTools(player: Player)
 		tool.Grip = CFrame.new(0, -0.1, 0.25)
 		tool:SetAttribute("COCEquipment", true)
 		tool:SetAttribute("On", false)
-		local handle = BUILDERS[item.Id](tool, self:_cameraSkin(player))
-		weldAll(tool, handle)
+		local skin = self:GetSkin(player, item.Id)
+		local model = EquipmentModels.Build(item.Id, skin)
+		if not model then
+			tool:Destroy()
+			continue
+		end
+		for _, child in ipairs(model:GetChildren()) do
+			child.Parent = tool
+		end
+		model:Destroy()
+		local skinId = nil
+		for id, candidate in pairs(CosmeticsConfig.Skins) do
+			if candidate == skin then
+				skinId = id
+			end
+		end
+		tool:SetAttribute("Skin", skinId)
+		if LIGHT_ITEMS[item.Id] then
+			local stats = self:GetLightStats(player, item.Id)
+			local beam = beamOf(tool)
+			if beam then
+				beam.Range = stats.Range
+				beam.Angle = stats.Angle
+				beam.Brightness = stats.Brightness
+				beam:SetAttribute("BaseBrightness", stats.Brightness)
+			end
+		end
 		self:_wireTool(player, tool, item)
 		tool.Parent = backpack
 		if item.Id == heldId then
@@ -333,6 +309,28 @@ function EquipmentService:RefreshTools(player: Player)
 		humanoid:EquipTool(toEquip)
 	end
 	self:_applyGoggles(player)
+end
+
+-- Equipment is for investigations: put it away at HQ, camera in hand on deployment.
+function EquipmentService:OnMissionMode(player: Player, inMission: boolean)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+	if not inMission then
+		for id in pairs(EquipmentConfig.Items) do
+			if self:IsOn(player, id) then
+				self:_setOn(player, id, false, true)
+			end
+		end
+		humanoid:UnequipTools()
+		return
+	end
+	local camera = self:FindTool(player, "Camera")
+	if camera and camera.Parent ~= character then
+		humanoid:EquipTool(camera)
+	end
 end
 
 function EquipmentService:_wireTool(player: Player, tool: Tool, item)
@@ -369,11 +367,10 @@ function EquipmentService:_applyVisuals(player: Player, itemId: string)
 	end
 	tool:SetAttribute("On", on)
 	if LIGHT_ITEMS[itemId] then
-		local handle = tool:FindFirstChild("Handle")
-		local beam = handle and handle:FindFirstChild("Beam")
+		local beam = beamOf(tool)
 		local lens = tool:FindFirstChild("Lens")
 		local lit = on and os.clock() >= state.FailingUntil
-		if beam and beam:IsA("SpotLight") then
+		if beam then
 			beam.Enabled = lit
 		end
 		if lens and lens:IsA("BasePart") then
@@ -559,8 +556,8 @@ function EquipmentService:AddBattery(player: Player, amount: number): string?
 	return lowestId
 end
 
-function EquipmentService:ResetForRound()
-	for _, player in ipairs(Players:GetPlayers()) do
+function EquipmentService:ResetForRound(team: { Player }?)
+	for _, player in ipairs(team or Players:GetPlayers()) do
 		local state = self:_state(player)
 		for id, item in pairs(EquipmentConfig.Items) do
 			state.Battery[id] = item.Battery.Capacity
@@ -609,7 +606,8 @@ function EquipmentService:_tick(dt: number)
 			local changed = false
 			for itemId, on in pairs(state.On) do
 				if on then
-					local drain = EquipmentConfig.Items[itemId].Battery.DrainPerSecond * elapsed
+					local multiplier = if LIGHT_ITEMS[itemId] then self:GetLightStats(player, itemId).DrainMultiplier else 1
+					local drain = EquipmentConfig.Items[itemId].Battery.DrainPerSecond * elapsed * multiplier
 					if drain > 0 then
 						state.Battery[itemId] = math.max(0, state.Battery[itemId] - drain)
 						changed = true
@@ -638,13 +636,13 @@ function EquipmentService:_tick(dt: number)
 			if not handle or not handle:IsA("BasePart") then
 				continue
 			end
-			local danger = anomalies:GetDangerNear(handle.Position, EquipmentConfig.InterferenceRadius)
+			local danger = anomalies:GetDangerNear(handle.Position, EquipmentConfig.InterferenceRadius) * self:GetLightStats(player, itemId).InterferenceMultiplier
 			local rounded = math.floor(danger * 10 + 0.5) / 10
 			if tool:GetAttribute("Interference") ~= rounded then
 				tool:SetAttribute("Interference", rounded)
 			end
-			local beam = handle:FindFirstChild("Beam")
-			if not beam or not beam:IsA("SpotLight") then
+			local beam = beamOf(tool)
+			if not beam then
 				continue
 			end
 			if now < state.FailingUntil then

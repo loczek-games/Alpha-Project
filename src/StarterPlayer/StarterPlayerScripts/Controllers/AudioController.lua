@@ -2,21 +2,30 @@
 	AudioController (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/AudioController
 
-	The client audio engine.
-	  * Mixer: SoundGroups Master > Music, Ambience, PlayerSFX, EquipmentSFX,
-	    AnomalySFX, Voice, Jumpscares, UI - scaled by the player's volume settings.
-	  * Play(path, where): resolves SoundConfig (variation + pitch/volume jitter),
-	    positions the sound in 3D and muffles it through walls (occlusion).
-	  * Plays WorldSound messages from the server (other players' equipment,
-	    doors, anomalies, phantom sounds...).
-	  * Looping sounds on anything tagged "LoopSound" (e.g. the Listener's breathing).
-	  * Zone acoustics: reverb + ambience beds per zone (open-space echo in the
-	    Main Hall, bathroom reverb, parking-lot reverb...).
-	  * SILENCE RULE: when something dangerous is close, music and ambience fade
-	    out completely so small sounds become terrifying.
+	THE client audio engine (AudioService on the server only tells clients
+	what to play). Everything audible goes through Play / StartLoop.
+
+	  * MIXER    SoundService.Master > Music, Ambience, EquipmentSFX, PlayerSFX,
+	             AnomalySFX, Jumpscares, Voice, UI (static SoundGroups in the
+	             place file; created here if missing) scaled by the player's
+	             volume settings.
+	  * PRELOAD  every asset (uploaded ids, banks, loop files, built-in
+	             fallbacks) is preloaded with ContentProvider. Failures are
+	             reported ("[AudioService] Failed sound: Camera.Shutter") and the
+	             sound switches to its next source (SoundResolver).
+	  * VERIFY   a sound that does not load within a few seconds at runtime is
+	             marked failed and replayed from its fallback.
+	  * 3D       positional sounds with InverseTapered roll-off, muffled through
+	             walls (occlusion); 2D sounds live in SoundService.
+	  * WORLD    WorldSound messages from the server, tagged "LoopSound" parts,
+	             zone reverb + ambience beds, and the SILENCE RULE (music and
+	             ambience fade out when something dangerous is close).
+	  * DEBUG    GetDiagnostics / PrintReport / TestSequence (Settings > Audio,
+	             admin /soundtest).
 ]]
 
 local CollectionService = game:GetService("CollectionService")
+local ContentProvider = game:GetService("ContentProvider")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
@@ -26,36 +35,44 @@ local Workspace = game:GetService("Workspace")
 local Config = ReplicatedStorage:WaitForChild("Config")
 local SoundConfig = require(Config:WaitForChild("SoundConfig"))
 local GameConfig = require(Config:WaitForChild("GameConfig"))
+local MapConfig = require(Config:WaitForChild("MapConfig"))
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local SoundResolver = require(Modules:WaitForChild("SoundResolver"))
 local Net = require(Modules:WaitForChild("Net"))
 
 local AudioController = {}
-AudioController.Groups = {}
+AudioController.Groups = {} :: { [string]: SoundGroup }
 AudioController.Loops = {}
 AudioController.Beds = {}
 AudioController.Duck = { Music = 1, Ambience = 1 }
+AudioController.Warned = {} :: { [string]: boolean }
+AudioController.Preloaded = false
+
+local LOAD_TIMEOUT = 4
+
+local function warnOnce(self, key: string, message: string)
+	if not self.Warned[key] then
+		self.Warned[key] = true
+		warn(message)
+	end
+end
 
 function AudioController:Init(controllers)
 	self.Controllers = controllers
-	local mixer = Instance.new("Folder")
-	mixer.Name = "COC_Mixer"
-	mixer.Parent = SoundService
-	self.Mixer = mixer
-	for _, name in ipairs(SoundConfig.GroupOrder) do
-		local def = SoundConfig.Groups[name]
-		local group = Instance.new("SoundGroup")
-		group.Name = name
-		group.Volume = def.Volume
-		group.Parent = if def.Parent then self.Groups[def.Parent] else mixer
-		self.Groups[name] = group
+	self:_setupGroups()
+	local twoD = SoundService:FindFirstChild("COC_2D")
+	if not twoD then
+		twoD = Instance.new("Folder")
+		twoD.Name = "COC_2D"
+		twoD.Parent = SoundService
 	end
-	self.TwoD = Instance.new("Folder")
-	self.TwoD.Name = "COC_2D"
-	self.TwoD.Parent = SoundService
+	self.TwoD = twoD
 
 	self.OcclusionParams = RaycastParams.new()
 	self.OcclusionParams.FilterType = Enum.RaycastFilterType.Exclude
+	controllers.UIKit.ButtonSound = function()
+		self:Play("UI.Button", nil)
+	end
 
 	local state = controllers.ClientState
 	state.DataChanged:Connect(function()
@@ -70,8 +87,33 @@ function AudioController:Init(controllers)
 	end)
 end
 
+-- The mixer lives in SoundService (default.project.json). Missing groups are
+-- created so a hand-edited place can never break audio.
+function AudioController:_setupGroups()
+	local master = SoundService:FindFirstChild("Master")
+	if not master or not master:IsA("SoundGroup") then
+		warn("[AudioService] SoundService.Master SoundGroup missing - creating the mixer at runtime")
+		local created = Instance.new("SoundGroup")
+		created.Name = "Master"
+		created.Parent = SoundService
+		master = created
+	end
+	self.Groups.Master = master :: SoundGroup
+	for _, name in ipairs(SoundConfig.GroupOrder) do
+		if name ~= "Master" then
+			local group = (master :: Instance):FindFirstChild(name)
+			if not group or not group:IsA("SoundGroup") then
+				local created = Instance.new("SoundGroup")
+				created.Name = name
+				created.Parent = master
+				group = created
+			end
+			self.Groups[name] = group :: SoundGroup
+		end
+	end
+end
+
 function AudioController:Start()
-	-- looping sounds attached to tagged parts
 	for _, instance in ipairs(CollectionService:GetTagged("LoopSound")) do
 		self:_attachLoop(instance)
 	end
@@ -116,9 +158,125 @@ function AudioController:Start()
 				self:_updateAcoustics()
 			end)
 			if not ok then
-				warn("[AudioController]", err)
+				warn("[AudioService]", err)
 			end
 			task.wait(0.5)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Preloading + diagnostics
+---------------------------------------------------------------------------
+
+function AudioController:PreloadAll()
+	if self.Preloaded then
+		return
+	end
+	self.Preloaded = true
+	local users: { [string]: { string } } = {}
+	for _, path in ipairs(SoundConfig.AllPaths()) do
+		for _, candidate in ipairs(SoundResolver.Candidates(path)) do
+			users[candidate.Id] = users[candidate.Id] or {}
+			table.insert(users[candidate.Id], path)
+		end
+	end
+	local sounds = {}
+	for id in pairs(users) do
+		local sound = Instance.new("Sound")
+		sound.SoundId = id
+		table.insert(sounds, sound)
+	end
+	local ok, err = pcall(function()
+		ContentProvider:PreloadAsync(sounds, function(contentId: string, status: Enum.AssetFetchStatus)
+			if status == Enum.AssetFetchStatus.Failure then
+				SoundResolver.MarkFailed(contentId)
+				local paths = users[contentId] or {}
+				warn(string.format("[AudioService] Failed sound asset %s (used by %d sound(s), e.g. %s) - switching to fallbacks", contentId, #paths, paths[1] or "?"))
+			end
+		end)
+	end)
+	if not ok then
+		warn("[AudioService] Preload error:", err)
+	end
+	for _, sound in ipairs(sounds) do
+		sound:Destroy()
+	end
+	local report = self:GetDiagnostics()
+	if report.BanksMissing > 0 then
+		print(string.format("[AudioService] %d sounds ready (%d from uploads, %d built-in fallbacks). %d sound bank(s) not uploaded yet - see docs/AUDIO.md", report.Loaded + report.Fallback, report.Loaded, report.Fallback, report.BanksMissing))
+	else
+		print(string.format("[AudioService] %d sounds ready from the uploaded banks", report.Loaded))
+	end
+	if report.Failed > 0 then
+		warn(string.format("[AudioService] %d sound(s) have NO playable source: %s", report.Failed, table.concat(report.FailedPaths, ", ")))
+	end
+end
+
+function AudioController:GetDiagnostics()
+	local report = { Loaded = 0, Fallback = 0, Failed = 0, FailedPaths = {}, BanksMissing = 0, Sources = {} }
+	for bank in pairs(SoundConfig.Banks) do
+		if not SoundResolver.GetBankId(bank) then
+			report.BanksMissing += 1
+		end
+	end
+	for _, path in ipairs(SoundConfig.AllPaths()) do
+		local resolved = SoundResolver.Resolve(path)
+		if not resolved then
+			report.Failed += 1
+			table.insert(report.FailedPaths, path)
+			report.Sources[path] = "NONE"
+		elseif resolved.Source == "Fallback" then
+			report.Fallback += 1
+			report.Sources[path] = "Fallback"
+		else
+			report.Loaded += 1
+			report.Sources[path] = resolved.Source
+		end
+	end
+	return report
+end
+
+function AudioController:PrintReport()
+	local report = self:GetDiagnostics()
+	print("[AudioService] ===== AUDIO REPORT =====")
+	for bank in pairs(SoundConfig.Banks) do
+		local id = SoundResolver.GetBankId(bank)
+		print(string.format("  bank %-9s %s%s", bank, id or "NOT UPLOADED", if id and SoundResolver.IsFailed(id) then "  (FAILED TO LOAD)" else ""))
+	end
+	for name, group in pairs(self.Groups) do
+		print(string.format("  group %-12s volume %.2f", name, group.Volume))
+	end
+	local paths = SoundConfig.AllPaths()
+	for _, path in ipairs(paths) do
+		local source = report.Sources[path]
+		if source ~= "Bank" and source ~= "Ids" and source ~= "Loop" then
+			print(string.format("  %-34s %s", path, source))
+		end
+	end
+	print(string.format("[AudioService] %d from uploads, %d fallbacks, %d with no source", report.Loaded, report.Fallback, report.Failed))
+end
+
+-- Plays one sound from every family, in order, right where you stand.
+function AudioController:TestSequence()
+	local sequence = {
+		"UI.Button",
+		"Camera.Shutter",
+		"Camera.FlashTrigger",
+		"Flashlight.On",
+		"EMF.Level3",
+		"Player.Footstep.Concrete",
+		"Door.Wood.Open",
+		"Anomaly.Whisper",
+		"Jumpscare.Impact",
+	}
+	task.spawn(function()
+		local camera = Workspace.CurrentCamera
+		for _, path in ipairs(sequence) do
+			local where = if camera then camera.CFrame * CFrame.new(2, 0, -4) else nil
+			local sound = self:Play(path, if where then where.Position else nil, { NoOcclusion = true })
+			print(string.format("[AudioService] test %-26s %s", path, if sound then "playing (" .. sound.SoundId .. ")" else "FAILED"))
+			task.wait(0.7)
 		end
 	end)
 end
@@ -131,6 +289,9 @@ function AudioController:ApplyVolumes()
 	local state = self.Controllers.ClientState
 	for name, group in pairs(self.Groups) do
 		local def = SoundConfig.Groups[name]
+		if not def then
+			continue
+		end
 		local volume = def.Volume
 		if def.Setting then
 			local value = state:GetSetting(def.Setting)
@@ -194,6 +355,7 @@ function AudioController:CountWalls(position: Vector3): number
 			table.insert(exclude, folder)
 		end
 	end
+	table.insert(exclude, camera)
 	self.OcclusionParams.FilterDescendantsInstances = exclude
 	local origin = camera.CFrame.Position
 	local walls = 0
@@ -206,7 +368,9 @@ function AudioController:CountWalls(position: Vector3): number
 		if not result then
 			break
 		end
-		walls += 1
+		if result.Instance.Transparency < 0.5 then
+			walls += 1
+		end
 		origin = result.Position + remaining.Unit * 0.6
 	end
 	return walls
@@ -218,16 +382,30 @@ export type PlayOptions = {
 	Variation: number?,
 	Looped: boolean?,
 	NoOcclusion: boolean?,
+	Retry: boolean?,
 }
+
+local function cleanupSound(sound: Sound, anchor: Instance?)
+	if anchor then
+		anchor:Destroy()
+	elseif sound.Parent then
+		sound:Destroy()
+	end
+end
 
 -- where: nil (2D) | Vector3 | BasePart | Attachment
 function AudioController:Play(path: string, where: any, options: PlayOptions?): Sound?
 	local opts: PlayOptions = options or {}
-	local resolved = SoundResolver.Resolve(path, opts.Variation)
-	if not resolved then
+	local entry = SoundConfig.Get(path)
+	if not entry then
+		warnOnce(self, "unknown:" .. path, "[AudioService] Unknown sound path: " .. tostring(path))
 		return nil
 	end
-	local entry = resolved.Entry
+	local resolved = SoundResolver.Resolve(path, opts.Variation)
+	if not resolved then
+		warnOnce(self, "nosource:" .. path, "[AudioService] Failed sound: " .. path .. " (no playable source)")
+		return nil
+	end
 	local sound = Instance.new("Sound")
 	sound.Name = path
 	sound.SoundId = resolved.SoundId
@@ -281,19 +459,42 @@ function AudioController:Play(path: string, where: any, options: PlayOptions?): 
 	end
 
 	sound:Play()
+
+	-- runtime verification: a sound that never loads is reported and replaced
+	if not sound.IsLoaded then
+		local soundId = resolved.SoundId
+		task.spawn(function()
+			local started = os.clock()
+			while sound.Parent and not sound.IsLoaded and os.clock() - started < LOAD_TIMEOUT do
+				task.wait(0.1)
+			end
+			if sound.Parent and not sound.IsLoaded then
+				SoundResolver.MarkFailed(soundId)
+				warnOnce(self, "failed:" .. soundId .. path, string.format("[AudioService] Failed sound: %s (%s did not load) - using the next source", path, soundId))
+				if not opts.Retry then
+					local replacement = self:Play(path, where, { Volume = opts.Volume, Speed = opts.Speed, Looped = opts.Looped, NoOcclusion = opts.NoOcclusion, Retry = true })
+					if replacement and looped then
+						-- hand the new loop to whoever owns the old one
+						sound:SetAttribute("ReplacedBy", replacement:GetFullName())
+						self.Replacements = self.Replacements or {}
+						self.Replacements[sound] = replacement
+					end
+				end
+				if not looped then
+					cleanupSound(sound, anchor)
+				end
+			end
+		end)
+	end
+
 	if not looped then
 		local lifetime = if resolved.Length > 0 then resolved.Length / math.max(sound.PlaybackSpeed, 0.05) + 0.5 else 10
-		local function cleanup()
-			if anchor then
-				anchor:Destroy()
-			else
-				sound:Destroy()
-			end
-		end
-		sound.Ended:Once(cleanup)
+		sound.Ended:Once(function()
+			cleanupSound(sound, anchor)
+		end)
 		task.delay(math.min(lifetime, 20), function()
 			if sound.Parent then
-				cleanup()
+				cleanupSound(sound, anchor)
 			end
 		end)
 	end
@@ -308,6 +509,11 @@ end
 function AudioController:StopLoop(sound: Sound?, fade: number?)
 	if not sound then
 		return
+	end
+	local replacement = self.Replacements and self.Replacements[sound]
+	if replacement then
+		self.Replacements[sound] = nil
+		self:StopLoop(replacement, fade)
 	end
 	local parent = sound.Parent
 	local isAnchor = parent and parent:IsA("Attachment") and parent.Name == "COC_SoundAnchor"
@@ -349,11 +555,31 @@ function AudioController:_onWorldSound(payload)
 		end)
 		return
 	end
+	if payload.L == true then
+		-- server-driven loop on an instance (alarms, drones): stop with L = false
+		self:_serverLoop(path, where, true)
+		return
+	elseif payload.L == false then
+		self:_serverLoop(path, where, false)
+		return
+	end
 	self:Play(path, where, { Volume = payload.V, Speed = payload.S, Variation = payload.N })
 end
 
+function AudioController:_serverLoop(path: string, where: any, on: boolean)
+	self.ServerLoops = self.ServerLoops or {}
+	local key = path .. tostring(where)
+	local existing = self.ServerLoops[key]
+	if on and not existing then
+		self.ServerLoops[key] = self:StartLoop(path, where)
+	elseif not on and existing then
+		self.ServerLoops[key] = nil
+		self:StopLoop(existing, 0.4)
+	end
+end
+
 ---------------------------------------------------------------------------
--- Tagged loops (e.g. the Listener's breathing)
+-- Tagged loops (breathing, alarms on parts...)
 ---------------------------------------------------------------------------
 
 function AudioController:_attachLoop(instance: Instance)
@@ -420,17 +646,27 @@ function AudioController:_updateAcoustics()
 	if state.InDarkRoom then
 		zone = "DarkRoom"
 	elseif not zone then
-		zone = "Lobby"
+		zone = if state:IsInMission() then "GrandHall" else "Lobby"
 	end
-	local acoustics = SoundConfig.ZoneAcoustics[zone] or SoundConfig.ZoneAcoustics.MainHall
-	local mapAcoustics = SoundConfig.MapAcoustics[SoundConfig.CurrentMap]
-	SoundService.AmbientReverb = acoustics.Reverb or (mapAcoustics and mapAcoustics.DefaultReverb) or Enum.ReverbType.NoReverb
+	local acoustics = SoundConfig.ZoneAcoustics[zone] or SoundConfig.ZoneAcoustics.GrandHall
+	local map = MapConfig.Get(state.Round.MapId or "DeadMall")
+	local reverbName = map and map.Acoustics and map.Acoustics[zone]
+	local reverb = acoustics.Reverb
+	if type(reverbName) == "string" then
+		local ok, value = pcall(function()
+			return (Enum.ReverbType :: any)[reverbName]
+		end)
+		if ok and value then
+			reverb = value
+		end
+	end
+	SoundService.AmbientReverb = reverb or Enum.ReverbType.NoReverb
 
 	local wanted = {}
 	for _, path in ipairs(acoustics.Beds or {}) do
 		wanted[path] = true
 	end
-	local inRound = state.Round.State == "Round"
+	local inRound = state:IsInRound()
 	local danger = if inRound then self:_dangerDistance() else math.huge
 	if acoustics.Music then
 		wanted[acoustics.Music] = true

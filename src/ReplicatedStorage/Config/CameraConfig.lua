@@ -29,19 +29,19 @@ CameraConfig.Cameras = {
 		Description = "A trusty point-and-shoot. It sees what you see.",
 	},
 	FastCam = {
-		Name = "FastCam",
+		Name = "Pro Camera",
 		Order = 2,
 		Price = 25000,
 		Cooldown = 0.55,
-		RangeMultiplier = 1,
+		RangeMultiplier = 1.15,
 		Noise = 0.22, -- fast mechanical shutter: louder
 		Abilities = {},
 		Implemented = true,
-		GamePass = "FastCamera",
+		GamePass = "ProCamera",
 		BodyColor = Color3.fromRGB(200, 40, 50),
 		AccentColor = Color3.fromRGB(255, 220, 90),
 		Icon = "⚡",
-		Description = "Much shorter photo cooldown. Never miss a fleeting anomaly.",
+		Description = "Much shorter photo cooldown and a sharper zoom. Never miss a fleeting anomaly.",
 	},
 	NightCam = {
 		Name = "NightCam",
@@ -84,15 +84,6 @@ CameraConfig.Cameras = {
 		AccentColor = Color3.fromRGB(0, 255, 230),
 		Icon = "👾",
 		Description = "Photographs digital and glitch anomalies.",
-	},
-}
-
--- Cosmetic skins applied on top of the equipped camera model.
-CameraConfig.Skins = {
-	VIP = {
-		BodyColor = Color3.fromRGB(255, 196, 45),
-		AccentColor = Color3.fromRGB(25, 25, 25),
-		Material = Enum.Material.Metal,
 	},
 }
 

@@ -2,11 +2,10 @@
 	AlbumController (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/AlbumController
 
-	ANOMALY ALBUM - the collection screen.
+	ANOMALY ARCHIVE - the collection screen (lobby archive terminal / menu).
 	  ANOMALIES  : every anomaly; undiscovered ones are "?" silhouettes
-	  PHOTO ROLL : your latest photos (capacity grows with Extra Album Storage)
-	  SETTINGS   : reduced flashes, screen shake, hints, ambience + volume
-	               sliders (Master, Music, Ambience, Equipment, Voice, Jumpscare)
+	  PHOTO ROLL : your latest photos (capacity grows with Extra Photo Roll)
+	(Settings live in SettingsController.)
 ]]
 
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -18,7 +17,6 @@ local AnomalyConfig = require(Config:WaitForChild("AnomalyConfig"))
 local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local MonetizationConfig = require(Config:WaitForChild("MonetizationConfig"))
 local Modules = ReplicatedStorage:WaitForChild("Modules")
-local Net = require(Modules:WaitForChild("Net"))
 local Format = require(Modules:WaitForChild("Format"))
 
 local AlbumController = {}
@@ -27,34 +25,18 @@ AlbumController.IsOpen = false
 
 local player = Players.LocalPlayer
 
-local SETTINGS = {
-	{ Key = "ReducedFlashes", Label = "Reduced flashes", Description = "Softer camera flashes and reveal effects." },
-	{ Key = "ScreenShake", Label = "Screen shake", Description = "Camera punches on big discoveries." },
-	{ Key = "Hints", Label = "Hints", Description = "Show tips for new photographers." },
-	{ Key = "Ambience", Label = "Mall ambience", Description = "Background hum, rain and ventilation." },
-}
-
-local VOLUMES = {
-	{ Key = "MasterVolume", Label = "🔊 Master" },
-	{ Key = "MusicVolume", Label = "🎵 Music" },
-	{ Key = "AmbienceVolume", Label = "🌧️ Ambience" },
-	{ Key = "EquipmentVolume", Label = "📸 Equipment & footsteps" },
-	{ Key = "VoiceVolume", Label = "👂 Anomaly voices" },
-	{ Key = "JumpscareVolume", Label = "😱 Jumpscares" },
-}
-
 function AlbumController:Init(controllers)
 	self.Controllers = controllers
 	local UIKit = controllers.UIKit
 	self.Gui = UIKit.GetScreenGui("AlbumUI", 10)
 	self.Root = UIKit.ScaledRoot(self.Gui)
 
-	local panel, body, tabs, subtitle = UIKit.BuildPanel(self.Root, "📖 ANOMALY ALBUM", function()
+	local panel, body, tabs, subtitle = UIKit.BuildPanel(self.Root, "ANOMALY ARCHIVE", function()
 		UIKit.ClosePanel("Album")
 	end)
 	self.Panel, self.Body, self.Tabs, self.Subtitle = panel, body, tabs, subtitle
 
-	for order, name in ipairs({ "ANOMALIES", "PHOTO ROLL", "SETTINGS" }) do
+	for order, name in ipairs({ "ANOMALIES", "PHOTO ROLL" }) do
 		UIKit.TabButton(tabs, name, order, function()
 			self.Tab = name
 			self:Render()
@@ -70,7 +52,6 @@ function AlbumController:Init(controllers)
 		UIKit.AnimatePanel(panel, false)
 	end)
 
-	self.SettingRemote = Net.Event("SettingRequest")
 	controllers.ClientState.DataChanged:Connect(function()
 		if self.IsOpen then
 			self:Render()
@@ -90,12 +71,10 @@ function AlbumController:Render()
 	for _, child in ipairs(self.Body:GetChildren()) do
 		child:Destroy()
 	end
-	if self.Tab == "ANOMALIES" then
-		self:_renderAnomalies()
-	elseif self.Tab == "PHOTO ROLL" then
+	if self.Tab == "PHOTO ROLL" then
 		self:_renderPhotoRoll()
 	else
-		self:_renderSettings()
+		self:_renderAnomalies()
 	end
 end
 
@@ -334,113 +313,6 @@ function AlbumController:_renderPhotoRoll()
 			Size = UDim2.new(0.2, 0, 1, 0),
 			Parent = row,
 		})
-	end
-end
-
-function AlbumController:_renderSettings()
-	local UIKit = self.Controllers.UIKit
-	local theme = UIKit.Theme
-	local state = self.Controllers.ClientState
-	local scroll = UIKit.Scroller(self.Body)
-	UIKit.List(scroll, Enum.FillDirection.Vertical, 10)
-	UIKit.Padding(scroll, 6)
-	for order, setting in ipairs(SETTINGS) do
-		local enabled = state:GetSetting(setting.Key) == true
-		local row = UIKit.Frame({ LayoutOrder = order, Size = UDim2.new(1, -12, 0, 70), BackgroundColor3 = theme.Panel2, Parent = scroll })
-		UIKit.Corner(row, 12)
-		UIKit.Label({
-			Text = setting.Label,
-			Font = theme.FontBlack,
-			TextSize = 19,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(16, 8),
-			Size = UDim2.new(1, -150, 0, 26),
-			Parent = row,
-		})
-		UIKit.Label({
-			Text = setting.Description,
-			TextSize = 14,
-			TextColor3 = theme.SubText,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(16, 36),
-			Size = UDim2.new(1, -150, 0, 24),
-			Parent = row,
-		})
-		UIKit.Button({
-			Text = if enabled then "ON" else "OFF",
-			TextSize = 18,
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -14, 0.5, 0),
-			Size = UDim2.fromOffset(110, 44),
-			BackgroundColor3 = if enabled then theme.Good else theme.Panel3,
-			TextColor3 = if enabled then theme.Ink else theme.Text,
-			Parent = row,
-		}, function()
-			self.SettingRemote:FireServer(setting.Key, not enabled)
-		end)
-	end
-
-	-- volume rows: [-] 70% [+]
-	for index, volume in ipairs(VOLUMES) do
-		local value = tonumber(state:GetSetting(volume.Key)) or 1
-		local row = UIKit.Frame({ LayoutOrder = #SETTINGS + index, Size = UDim2.new(1, -12, 0, 56), BackgroundColor3 = theme.Panel2, Parent = scroll })
-		UIKit.Corner(row, 12)
-		UIKit.Label({
-			Text = volume.Label,
-			Font = theme.FontBlack,
-			TextSize = 18,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(16, 0),
-			Size = UDim2.new(1, -220, 1, 0),
-			Parent = row,
-		})
-		local bar = UIKit.Frame({
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -66, 0.5, 0),
-			Size = UDim2.fromOffset(84, 30),
-			BackgroundColor3 = theme.Panel3,
-			Parent = row,
-		})
-		UIKit.Corner(bar, 8)
-		local fill = UIKit.Frame({ Size = UDim2.fromScale(value, 1), BackgroundColor3 = theme.Accent, Parent = bar })
-		UIKit.Corner(fill, 8)
-		UIKit.Label({
-			Text = string.format("%d%%", math.floor(value * 100 + 0.5)),
-			Font = theme.FontBlack,
-			TextSize = 15,
-			TextStrokeTransparency = 0.4,
-			Size = UDim2.fromScale(1, 1),
-			ZIndex = 3,
-			Parent = bar,
-		})
-		local function step(delta: number)
-			local nextValue = math.clamp(math.floor((value + delta) * 10 + 0.5) / 10, 0, 1)
-			if nextValue ~= value then
-				self.SettingRemote:FireServer(volume.Key, nextValue)
-			end
-		end
-		UIKit.Button({
-			Text = "−",
-			TextSize = 22,
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -156, 0.5, 0),
-			Size = UDim2.fromOffset(44, 40),
-			BackgroundColor3 = theme.Panel3,
-			Parent = row,
-		}, function()
-			step(-0.1)
-		end)
-		UIKit.Button({
-			Text = "+",
-			TextSize = 22,
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -14, 0.5, 0),
-			Size = UDim2.fromOffset(44, 40),
-			BackgroundColor3 = theme.Panel3,
-			Parent = row,
-		}, function()
-			step(0.1)
-		end)
 	end
 end
 

@@ -40,8 +40,7 @@ PhotoController.LastFocusDistance = 0
 PhotoController.NextFocusCheck = 0
 PhotoController.NextBrokenFocus = 0
 
-local NORMAL_FOV = 70
-local ZOOM_FOV = 38
+local ZOOM_FOV = 34
 
 local FAIL_MESSAGES = {
 	NOTHING = "Nothing strange here... 🤔",
@@ -50,7 +49,7 @@ local FAIL_MESSAGES = {
 	BLOCKED = "Something is in the way 🧱",
 	NEEDS_CAMERA = "Your camera can't capture this one 📷",
 	MAXED = "You already have 3 shots of this one 📚",
-	NOT_IN_ROUND = "📸 Photos only count inside the DEAD MALL",
+	NOT_IN_ROUND = "📸 Photos only count during an investigation",
 	DECOY = "That's just... normal. Probably. 😅",
 	NO_BATTERY = "🪫 Camera battery empty! Find a battery 🔋",
 }
@@ -67,13 +66,13 @@ function PhotoController:Init(controllers)
 	local button = UIKit.new("TextButton", {
 		Name = "PhotoButton",
 		AnchorPoint = Vector2.new(1, 1),
-		BackgroundColor3 = Color3.fromRGB(245, 245, 250),
+		BackgroundColor3 = Color3.fromRGB(20, 18, 18),
 		AutoButtonColor = false,
 		Text = "",
 		Parent = hud.Gui,
 	})
 	UIKit.Corner(button, UDim.new(1, 0))
-	UIKit.Stroke(button, Color3.fromRGB(20, 20, 24), 4, 0)
+	UIKit.Stroke(button, Color3.fromRGB(200, 196, 188), 3, 0.1)
 	local inner = UIKit.Frame({
 		Name = "Inner",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -163,7 +162,7 @@ function PhotoController:Init(controllers)
 		self.PromptsShown = math.max(0, self.PromptsShown - 1)
 	end)
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or UIKit.IsAnyPanelOpen() then
+		if gameProcessed or UIKit.IsAnyPanelOpen() or not controllers.ClientState:IsInMission() then
 			return
 		end
 		local key = input.KeyCode
@@ -178,6 +177,9 @@ function PhotoController:Init(controllers)
 
 	controllers.EquipmentController.Changed:Connect(function(itemId)
 		self:_refreshButton(itemId)
+	end)
+	controllers.ClientState.RoundChanged:Connect(function()
+		self:_layout()
 	end)
 
 	hud.Gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
@@ -260,7 +262,9 @@ function PhotoController:_refreshButton(itemId: string?)
 		self.ButtonCaption.Text = item.ActionLabel .. (if on then " ON" else "")
 		self.ButtonInner.BackgroundColor3 = if on then Color3.fromRGB(230, 170, 40) else Color3.fromRGB(70, 70, 90)
 	end
-	self.ZoomButton.Visible = self.Touch == true and itemId == "Camera"
+	local inMission = self.Controllers.ClientState:IsInMission()
+	self.Button.Visible = inMission
+	self.ZoomButton.Visible = inMission and self.Touch == true and itemId == "Camera"
 	if itemId ~= "Camera" and self.Zoomed then
 		self:ToggleZoom(true)
 	end
@@ -288,7 +292,9 @@ function PhotoController:ToggleZoom(silent: boolean?)
 		return
 	end
 	self.Zoomed = not self.Zoomed
-	TweenService:Create(camera, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = if self.Zoomed then ZOOM_FOV else NORMAL_FOV }):Play()
+	local normal = self.Controllers.FirstPersonController.BaseFieldOfView
+	TweenService:Create(camera, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = if self.Zoomed then ZOOM_FOV else normal }):Play()
+	self.Controllers.ViewmodelController:SetZoom(self.Zoomed, normal / ZOOM_FOV)
 	if not silent then
 		local audio = self.Controllers.AudioController
 		audio:Play(if self.Zoomed then "Camera.ZoomIn" else "Camera.ZoomOut", nil)
@@ -320,6 +326,7 @@ function PhotoController:_autofocus()
 				local offset = beacon.Position - origin
 				if offset.Magnitude < 55 and offset.Magnitude > 0.1 and math.deg(math.acos(math.clamp(look:Dot(offset.Unit), -1, 1))) < 25 then
 					self.NextBrokenFocus = now + 3.5
+					self.Controllers.ViewmodelController:SetFocus("Error")
 					task.spawn(function()
 						audio:Play("Camera.Focus", nil)
 						task.wait(0.4)
@@ -349,6 +356,7 @@ function PhotoController:_autofocus()
 	local last = self.LastFocusDistance
 	if math.abs(distance - last) / math.max(distance, 4) > 0.25 then
 		self.LastFocusDistance = distance
+		self.Controllers.ViewmodelController:SetFocus("Focusing")
 		-- "beep... zzzt"
 		audio:Play("Camera.Focus", nil)
 		task.delay(0.12, function()
@@ -395,7 +403,8 @@ function PhotoController:Shoot()
 		audio:Play("Camera.FlashCharge", nil)
 	end)
 	fx:Flash(0.85)
-	fx:FreezeFrame(0.16)
+	fx:FreezeFrame(0.1)
+	self.Controllers.ViewmodelController:Shutter()
 	self.Remote:FireServer(camera.CFrame)
 
 	self.ButtonScale.Scale = 0.85
@@ -406,7 +415,7 @@ end
 
 function PhotoController:_onFail(result)
 	local UIKit = self.Controllers.UIKit
-	self.Controllers.Sfx.Play("Fail")
+	self.Controllers.AudioController:Play("UI.Fail", nil)
 	local text = result.Message or FAIL_MESSAGES[result.Reason] or FAIL_MESSAGES.NOTHING
 	if result.Reason == "DECOY" then
 		text = "🔔 " .. text
@@ -491,7 +500,7 @@ function PhotoController:_onSuccess(result)
 	local def = AnomalyConfig.Get(result.Id)
 	controllers.AudioController:Play(if tier.Rank >= RarityConfig.GetRank("Rare") then "Camera.CaptureRare" else "Camera.CaptureSuccess", nil)
 	if result.IsNew then
-		controllers.Sfx.Play("NewDiscovery")
+		controllers.AudioController:Play("UI.NewDiscovery", nil)
 	end
 	controllers.HUDController:PulseReticle(tier.Color)
 

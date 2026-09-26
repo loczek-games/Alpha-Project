@@ -15,6 +15,14 @@
 
 	All original sounds of the game live in just FOUR files
 	(assets/audio/banks/*.ogg): upload them, paste the 4 ids below, done.
+	(Alternative without editing code: set the attributes SoundBank_Equipment,
+	SoundBank_Player, SoundBank_World and SoundBank_Loops on SoundService in
+	Studio to the uploaded ids - they override the table below.)
+
+	Every asset is preloaded with ContentProvider and verified at runtime; a
+	missing or failed asset prints "[AudioService] Failed sound: <path>" and
+	that sound falls back to the next source automatically. /soundtest (admin)
+	and SETTINGS > AUDIO > TEST SOUND check the whole chain.
 
 	Every entry is addressed by its path, e.g. "Camera.Shutter",
 	"Flashlight.On", "EMF.Level5", "Player.Footstep.Metal",
@@ -63,6 +71,10 @@ SoundConfig.Loops = {
 	ThermalScan = "",
 	MusicLobby = "",
 	MusicTension = "",
+	CarAlarm = "",
+	StoreAlarm = "",
+	TVStatic = "",
+	EntityDrone = "",
 }
 
 -- Built-in Roblox content sounds (always available, used as fallbacks).
@@ -76,6 +88,10 @@ local B = {
 	Swoosh = "rbxasset://sounds/swordslash.wav",
 	Unsheath = "rbxasset://sounds/unsheath.wav",
 	Groan = "rbxasset://sounds/uuhhh.mp3",
+	Wind = "rbxasset://sounds/action_falling.mp3",
+	Swim = "rbxasset://sounds/action_swim.mp3",
+	GetUp = "rbxasset://sounds/action_get_up.mp3",
+	Lunge = "rbxasset://sounds/swordlunge.wav",
 }
 SoundConfig.Builtin = B
 
@@ -346,6 +362,7 @@ SoundConfig.Interaction = {
 	RadioVoice = S({ Volume = 0.55, Group = "Voice", RollOff = { 6, 70 }, Fallback = { B.Groan, 0.7 }, Noise = 0.2, NoiseKind = "Radio" }),
 	PhoneRing = S({ Volume = 0.8, Group = "AnomalySFX", RollOff = { 10, 140 }, Pitch = { 1, 1 }, Fallback = { B.Ping, 1.9 }, Noise = 0.3, NoiseKind = "Phone" }),
 	PhonePickup = interaction(B.Click, 0.8, 0.55, 0.06),
+	Revive = interaction(B.GetUp, 1, 0.6, 0.1),
 }
 
 ---------------------------------------------------------------------------
@@ -383,6 +400,50 @@ SoundConfig.Anomaly = {
 	EchoVoice = anomaly(B.Groan, 1.2, 0.5, { 4, 60 }),
 	MimicGiggle = anomaly(B.Groan, 2.2, 0.4, { 4, 45 }),
 	Jumpscare = S({ Volume = 1, Group = "Jumpscares", Spatial = false, Pitch = { 1, 1 }, Fallback = { B.Groan, 0.6 } }),
+	-- ceiling crawler + creatures
+	CeilingCreak = anomaly(B.Groan, 1.9, 0.55, { 5, 55 }),
+	CeilingScuttle = anomaly(B.Click, 1.6, 0.65, { 5, 60 }),
+	DustFall = anomaly(B.Swim, 2.5, 0.35, { 3, 30 }),
+	Breath = anomaly(B.Wind, 0.6, 0.45, { 3, 28 }),
+	Snap = anomaly(B.Click, 0.9, 0.6, { 4, 50 }),
+	Teleport = anomaly(B.Swoosh, 0.5, 0.55, { 5, 60 }),
+	Laugh = anomaly(B.Groan, 1.6, 0.55, { 6, 80 }),
+	Thud = anomaly(B.Land, 0.6, 0.8, { 6, 90 }),
+	GlassTap = anomaly(B.Click, 2.2, 0.5, { 4, 45 }),
+	-- object anomalies
+	CartRoll = anomaly(B.Step, 0.6, 0.55, { 5, 60 }),
+	ChairScrape = anomaly(B.Swoosh, 0.35, 0.6, { 5, 60 }),
+	ShelfCrash = anomaly(B.Land, 0.4, 1, { 10, 140 }),
+	BallBounce = anomaly(B.Land, 1.8, 0.5, { 4, 50 }),
+	BagRustle = anomaly(B.Swoosh, 1.4, 0.4, { 3, 30 }),
+	MetalGroan = anomaly(B.Groan, 0.3, 0.7, { 10, 140 }),
+	ArcadeJingle = anomaly(B.Ping, 1.3, 0.5, { 5, 60 }, { 0.97, 1.03 }),
+	TVOn = anomaly(B.Click, 0.25, 0.5, { 4, 45 }),
+	CarAlarm = S({ Volume = 0.8, Group = "AnomalySFX", Looped = true, Loop = "CarAlarm", RollOff = { 15, 220 }, Pitch = { 1, 1 }, Fallback = { B.Ping, 0.8 } }),
+	StoreAlarm = S({ Volume = 0.7, Group = "AnomalySFX", Looped = true, Loop = "StoreAlarm", RollOff = { 12, 180 }, Pitch = { 1, 1 }, Fallback = { B.Ping, 1.6 } }),
+	TVStatic = S({ Volume = 0.35, Group = "AnomalySFX", Looped = true, Loop = "TVStatic", RollOff = { 3, 35 }, Fallback = { B.Wind, 2.4 } }),
+	EntityDrone = S({ Volume = 0.5, Group = "AnomalySFX", Looped = true, Loop = "EntityDrone", RollOff = { 6, 60 }, Pitch = { 1, 1 }, Fallback = { B.Wind, 0.3 } }),
+}
+
+---------------------------------------------------------------------------
+-- JUMPSCARES (2D, always first person). Every major anomaly has its own.
+---------------------------------------------------------------------------
+local function scare(builtin: string, speed: number, volume: number?)
+	return S({ Volume = volume or 1, Group = "Jumpscares", Spatial = false, Pitch = { 0.97, 1.03 }, VolumeJitter = 0, Fallback = { builtin, speed } })
+end
+
+SoundConfig.Jumpscare = {
+	Impact = scare(B.Land, 0.45),
+	Screech = scare(B.Groan, 1.8, 0.9),
+	CrawlerDrop = scare(B.Land, 0.6),
+	CrawlerScreech = scare(B.Groan, 2.2, 0.95),
+	Titan = scare(B.Groan, 0.35),
+	Smile = scare(B.Groan, 1.4, 0.9),
+	Possessed = scare(B.Groan, 1.1, 0.95),
+	Slacker = scare(B.Groan, 0.7, 0.9),
+	Static = scare(B.Wind, 3, 0.7),
+	Ringing = scare(B.Ping, 2.6, 0.35),
+	Fall = scare(B.Land, 0.8, 0.8),
 }
 
 ---------------------------------------------------------------------------
@@ -395,12 +456,14 @@ SoundConfig.Environment = {
 	DistantBang = S({ Volume = 0.8, Group = "Ambience", RollOff = { 20, 250 }, Fallback = { B.Click, 0.3 } }),
 	Drip = S({ Volume = 0.3, Group = "Ambience", RollOff = { 3, 40 }, Pitch = { 0.8, 1.3 }, Fallback = { B.Ping, 3 } }),
 	PAStatic = S({ Volume = 0.5, Group = "Ambience", Spatial = false, Fallback = { B.Click, 0.18 } }),
+	PAChime = S({ Volume = 0.6, Group = "Ambience", Spatial = false, Pitch = { 1, 1 }, Fallback = { B.Ping, 0.8 } }),
+	LightBuzz = S({ Volume = 0.45, Group = "Ambience", RollOff = { 3, 35 }, Fallback = { B.Click, 0.15 } }),
 }
 
 SoundConfig.Ambience = {
-	MallHum = S({ Volume = 0.3, Group = "Ambience", Spatial = false, Looped = true, Loop = "MallHum" }),
-	RainSkylight = S({ Volume = 0.45, Group = "Ambience", Spatial = false, Looped = true, Loop = "RainSkylight" }),
-	HVAC = S({ Volume = 0.35, Group = "Ambience", Spatial = false, Looped = true, Loop = "HVAC" }),
+	MallHum = S({ Volume = 0.3, Group = "Ambience", Spatial = false, Looped = true, Loop = "MallHum", Fallback = { B.Wind, 0.3 } }),
+	RainSkylight = S({ Volume = 0.45, Group = "Ambience", Spatial = false, Looped = true, Loop = "RainSkylight", Fallback = { B.Swim, 0.55 } }),
+	HVAC = S({ Volume = 0.35, Group = "Ambience", Spatial = false, Looped = true, Loop = "HVAC", Fallback = { B.Wind, 0.55 } }),
 }
 
 SoundConfig.Music = {
@@ -426,22 +489,35 @@ SoundConfig.UI = {
 	Heartbeat = ui(B.Click, 0.4, 0.5),
 	Error = ui(B.Ping, 0.4, 0.45),
 	Stinger = ui(B.Groan, 0.4, 0.8),
+	QueueJoin = ui(B.Ping, 1.3, 0.45),
+	QueueLeave = ui(B.Ping, 0.9, 0.4),
+	QueueTick = ui(B.Click, 1.8, 0.3),
+	QueueTickFinal = ui(B.Ping, 1.7, 0.45),
+	Terminal = ui(B.Click, 2.2, 0.4),
+	MissionStart = ui(B.Land, 0.5, 0.8),
 }
 
 ---------------------------------------------------------------------------
 -- ACOUSTICS: reverb + ambience beds per zone, and per-map "feel"
 ---------------------------------------------------------------------------
 SoundConfig.ZoneAcoustics = {
-	MainHall = { Reverb = Enum.ReverbType.Hangar, Beds = { "Ambience.MallHum", "Ambience.RainSkylight" } },
-	FoodCourt = { Reverb = Enum.ReverbType.Auditorium, Beds = { "Ambience.MallHum" } },
-	ToyStore = { Reverb = Enum.ReverbType.Room, Beds = { "Ambience.MallHum" } },
+	Entrance = { Reverb = Enum.ReverbType.Hallway, Beds = { "Ambience.MallHum", "Ambience.RainSkylight" } },
+	GrandHall = { Reverb = Enum.ReverbType.Hangar, Beds = { "Ambience.MallHum", "Ambience.RainSkylight" } },
+	Supermarket = { Reverb = Enum.ReverbType.Arena, Beds = { "Ambience.MallHum" } },
+	Electronics = { Reverb = Enum.ReverbType.Room, Beds = { "Ambience.MallHum" } },
+	Clothing = { Reverb = Enum.ReverbType.Room, Beds = { "Ambience.MallHum" } },
+	Restrooms = { Reverb = Enum.ReverbType.Bathroom, Beds = { "Ambience.HVAC" } },
+	Cinema = { Reverb = Enum.ReverbType.Auditorium, Beds = { "Ambience.MallHum" } },
+	Theaters = { Reverb = Enum.ReverbType.Auditorium, Beds = {} },
 	Arcade = { Reverb = Enum.ReverbType.CarpettedHallway, Beds = { "Ambience.MallHum" } },
-	Cinema = { Reverb = Enum.ReverbType.Auditorium, Beds = {} },
-	Bathrooms = { Reverb = Enum.ReverbType.Bathroom, Beds = { "Ambience.HVAC" } },
+	ToyStore = { Reverb = Enum.ReverbType.Room, Beds = { "Ambience.MallHum" } },
+	BookNook = { Reverb = Enum.ReverbType.PaddedCell, Beds = {} },
+	FoodCourt = { Reverb = Enum.ReverbType.ConcertHall, Beds = { "Ambience.MallHum", "Ambience.RainSkylight" } },
+	ServiceHalls = { Reverb = Enum.ReverbType.StoneCorridor, Beds = { "Ambience.HVAC" } },
+	BackOfHouse = { Reverb = Enum.ReverbType.StoneRoom, Beds = { "Ambience.HVAC" } },
+	SecurityRoom = { Reverb = Enum.ReverbType.Room, Beds = { "Ambience.HVAC" } },
 	ParkingGarage = { Reverb = Enum.ReverbType.ParkingLot, Beds = { "Ambience.HVAC" } },
-	StorageHallway = { Reverb = Enum.ReverbType.StoneCorridor, Beds = { "Ambience.HVAC" } },
-	SecurityOffice = { Reverb = Enum.ReverbType.Room, Beds = { "Ambience.HVAC" } },
-	Lobby = { Reverb = Enum.ReverbType.LivingRoom, Beds = {}, Music = "Music.Lobby" },
+	Lobby = { Reverb = Enum.ReverbType.LivingRoom, Beds = { "Ambience.RainSkylight" }, Music = "Music.Lobby" },
 	DarkRoom = { Reverb = Enum.ReverbType.PaddedCell, Beds = {} },
 }
 
@@ -465,7 +541,7 @@ SoundConfig.CurrentMap = "DeadMall"
 -- Lookup helpers (no need to edit below)
 ---------------------------------------------------------------------------
 
-local CATEGORIES = { "Camera", "Flashlight", "EMF", "Thermal", "UV", "NightVision", "Equipment", "Player", "Door", "Interaction", "Anomaly", "Environment", "Ambience", "Music", "UI" }
+local CATEGORIES = { "Camera", "Flashlight", "EMF", "Thermal", "UV", "NightVision", "Equipment", "Player", "Door", "Interaction", "Anomaly", "Jumpscare", "Environment", "Ambience", "Music", "UI" }
 SoundConfig.Categories = CATEGORIES
 
 local byPath = {}

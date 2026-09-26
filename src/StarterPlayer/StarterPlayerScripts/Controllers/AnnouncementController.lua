@@ -64,7 +64,7 @@ function AnnouncementController:Init(controllers)
 		if not state:GetSetting("Hints") then
 			return
 		end
-		if round.State == "Round" and (not previous or previous.State ~= "Round") and state:CountDiscovered() < 3 then
+		if state:IsInRound() and (not previous or previous.State ~= "Round") and state:CountDiscovered() < 3 then
 			task.delay(4, function()
 				local isTouch = UIKit.IsTouch()
 				self:Hint(if isTouch then "📸 Spot something WRONG, aim at it and tap PHOTO!" else "📸 Spot something WRONG, aim at it and CLICK (or press E)!", 6)
@@ -137,11 +137,11 @@ end
 function AnnouncementController:Banner(text: string, subText: string?, color: Color3?, duration: number?)
 	local UIKit = self.Controllers.UIKit
 	local theme = UIKit.Theme
-	local Sfx = self.Controllers.Sfx
+	local audio = self.Controllers.AudioController
 	if self.CurrentBanner then
 		self.CurrentBanner:Destroy()
 	end
-	Sfx.Play("Announce")
+	audio:Play("UI.Announce", nil)
 	local holder = UIKit.Frame({
 		Name = "Banner",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -234,7 +234,7 @@ function AnnouncementController:Reveal(payload)
 	local UIKit = self.Controllers.UIKit
 	local theme = UIKit.Theme
 	local state = self.Controllers.ClientState
-	local Sfx = self.Controllers.Sfx
+	local audio = self.Controllers.AudioController
 	local reduced = state:GetSetting("ReducedFlashes") == true
 	local shake = state:GetSetting("ScreenShake") == true
 	local color = payload.Color or RarityConfig.GetColor(payload.Rarity or "Impossible")
@@ -242,7 +242,7 @@ function AnnouncementController:Reveal(payload)
 	if self.CurrentReveal then
 		self.CurrentReveal:Destroy()
 	end
-	Sfx.Play("Reveal")
+	audio:Play("UI.Reveal", nil)
 
 	local holder = UIKit.Frame({
 		Name = "Reveal",
@@ -345,6 +345,47 @@ function AnnouncementController:Reveal(payload)
 			holder:Destroy()
 		end
 		grade:Destroy()
+	end)
+end
+
+-- Small modal "are you sure?" card (leave mission, leave party...).
+function AnnouncementController:Confirm(title: string, body: string, confirmText: string, onConfirm: () -> ())
+	local UIKit = self.Controllers.UIKit
+	local theme = UIKit.Theme
+	if self.ConfirmCard then
+		self.ConfirmCard:Destroy()
+	end
+	local shade = UIKit.Frame({
+		Name = "Confirm",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.45,
+		ZIndex = 40,
+		Parent = self.OverlayRoot,
+	})
+	self.ConfirmCard = shade
+	local card = UIKit.Card({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(380, 190),
+		BackgroundColor3 = theme.Bg,
+		ZIndex = 41,
+		Parent = shade,
+	})
+	UIKit.Label({ Text = title, Font = theme.FontType, TextSize = 22, TextColor3 = theme.AccentBright, Position = UDim2.fromOffset(16, 12), Size = UDim2.new(1, -32, 0, 34), ZIndex = 42, Parent = card })
+	UIKit.Label({ Text = body, Font = theme.Font, TextSize = 15, TextColor3 = theme.SubText, Position = UDim2.fromOffset(16, 52), Size = UDim2.new(1, -32, 0, 60), ZIndex = 42, Parent = card })
+	local function close()
+		if shade.Parent then
+			shade:Destroy()
+		end
+		if self.ConfirmCard == shade then
+			self.ConfirmCard = nil
+		end
+	end
+	UIKit.Button({ Text = "CANCEL", Font = theme.FontType, TextSize = 16, Position = UDim2.new(0, 16, 1, -58), Size = UDim2.new(0.5, -24, 0, 44), BackgroundColor3 = theme.Panel2, ZIndex = 42, Parent = card }, close)
+	UIKit.Button({ Text = confirmText, Font = theme.FontType, TextSize = 16, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 1, -58), Size = UDim2.new(0.5, -24, 0, 44), BackgroundColor3 = theme.Accent, ZIndex = 42, Parent = card }, function()
+		close()
+		onConfirm()
 	end)
 end
 

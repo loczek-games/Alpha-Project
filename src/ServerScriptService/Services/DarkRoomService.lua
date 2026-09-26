@@ -29,6 +29,15 @@ function DarkRoomService:Init(services)
 	local function hookPrompt(tag: string, callback: (Player) -> ())
 		local function connect(instance: Instance)
 			local prompt = instance:FindFirstChildWhichIsA("ProximityPrompt", true)
+			if not prompt and instance:IsA("BasePart") then
+				local created = Instance.new("ProximityPrompt")
+				created.ActionText = if tag == "DarkRoomEntrance" then "Enter" else "Leave"
+				created.ObjectText = "Dark Room"
+				created.MaxActivationDistance = 9
+				created.RequiresLineOfSight = false
+				created.Parent = instance
+				prompt = created
+			end
 			if prompt then
 				prompt.Triggered:Connect(callback)
 			end
@@ -68,9 +77,11 @@ function DarkRoomService:Init(services)
 end
 
 function DarkRoomService:Enter(player: Player): (boolean, string?)
-	local round = self.Services.RoundService
-	if round.State == "Round" and round:IsParticipant(player) then
-		return false, "The Dark Room opens between rounds."
+	if self.Services.MissionService:IsParticipant(player) then
+		return false, "The Dark Room is at HQ. Finish the investigation first."
+	end
+	if not self.Services.MapService.Folders.Lobby then
+		return false, "The Dark Room is at HQ."
 	end
 	if self.Inside[player] then
 		return true
@@ -94,9 +105,9 @@ function DarkRoomService:Leave(player: Player)
 	self.StateRemote:FireClient(player, { Inside = false })
 end
 
--- Round start: everyone is pulled into the mall; just clear the state.
-function DarkRoomService:EvictAll()
-	for player in pairs(self.Inside) do
+-- Deployment: the investigator is pulled into the map; just clear the state.
+function DarkRoomService:Evict(player: Player)
+	if self.Inside[player] then
 		self.Inside[player] = nil
 		if player:IsDescendantOf(Players) then
 			self.StateRemote:FireClient(player, { Inside = false })
@@ -146,9 +157,10 @@ function DarkRoomService:GetShowcase(owner: Player)
 	return {
 		UserId = owner.UserId,
 		Name = owner.DisplayName,
-		VIP = monetization and monetization:HasPass(owner, "VIPPhotographer") or false,
+		VIP = monetization and monetization:HasPass(owner, "VIPInvestigator") or false,
 		Frames = frames,
 		Entries = shown,
+		Decor = (dataService:GetData(owner) :: any).Cosmetics.Decor or "Classic",
 		Discovered = dataService:CountDiscoveries(owner),
 		Total = AnomalyConfig.Count(),
 	}

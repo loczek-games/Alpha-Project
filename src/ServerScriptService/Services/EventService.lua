@@ -93,8 +93,8 @@ EventService.DecoyBuilders = {
 		end
 		local cabinet = cabinets[math.random(1, #cabinets)]
 		local screen = cabinet:FindFirstChild("Screen")
-		local display = screen and screen:FindFirstChild("Display")
-		local label = display and display:FindFirstChild("Text")
+		local display = screen and screen:FindFirstChildWhichIsA("SurfaceGui")
+		local label = display and display:FindFirstChild("Line2")
 		if not label or not label:IsA("TextLabel") then
 			return
 		end
@@ -118,7 +118,7 @@ EventService.DecoyBuilders = {
 	end,
 	-- Lights flickering in a random zone.
 	function(self, cleaner)
-		local zones = { "FoodCourt", "Arcade", "ToyStore", "Bathrooms", "StorageHallway", "ParkingGarage" }
+		local zones = { "FoodCourt", "Arcade", "ToyStore", "Restrooms", "ServiceHalls", "ParkingGarage", "Supermarket", "Electronics", "Cinema" }
 		local zone = zones[math.random(1, #zones)]
 		local running = true
 		cleaner:Add(function()
@@ -144,7 +144,7 @@ EventService.DecoyBuilders = {
 	end,
 	-- A bouncing ball in the toy store.
 	function(self, cleaner)
-		local markers = self.Services.MapService:GetMarkers({ "Floor" }, { "ToyStore", "MainHall" })
+		local markers = self.Services.MapService:GetMarkers({ "Floor" }, { "ToyStore", "GrandHall", "Arcade" })
 		if #markers == 0 then
 			return
 		end
@@ -198,7 +198,7 @@ EventService.Handlers = {
 			self.Services.MapService:SetBlackout(true)
 			self.AnnounceRemote:FireAllClients({
 				Kind = "Toast",
-				Text = "🔦 Pull out your FLASHLIGHT (slot 2). The breaker is in the Security Office...",
+				Text = "🔦 Pull out your FLASHLIGHT (slot 2). The breaker is in the ELECTRICAL room, back of house...",
 				Color = Color3.fromRGB(150, 180, 255),
 				Duration = 5,
 			})
@@ -301,7 +301,7 @@ function EventService:StopRound()
 end
 
 function EventService:_timeLeft(): number
-	local round = self.Services.RoundService
+	local round = self.Services.MissionService
 	if not round or round.State ~= "Round" then
 		return 0
 	end
@@ -427,7 +427,7 @@ function EventService:RequestPurchasedEvent(eventId: string, player: Player): bo
 	end
 	table.insert(self.Queue, { Id = eventId, BuyerName = player.DisplayName })
 	local def = DEFS[eventId]
-	local round = self.Services.RoundService
+	local round = self.Services.MissionService
 	local message
 	if self.Active or not self.RoundActive or self:_timeLeft() < EVENTS.MinTimeLeftToStart then
 		message = string.format("%s %s queued - it starts as soon as possible for EVERYONE!", def.Icon, def.Name)

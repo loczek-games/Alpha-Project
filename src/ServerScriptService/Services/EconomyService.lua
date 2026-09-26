@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = ReplicatedStorage:WaitForChild("Config")
 local CameraConfig = require(Config:WaitForChild("CameraConfig"))
 local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
+local CosmeticsConfig = require(Config:WaitForChild("CosmeticsConfig"))
 local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
 local Format = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Format"))
 
@@ -190,12 +191,52 @@ function EconomyService:_handleShop(player: Player, action: any, id: any)
 		data.Upgrades[id] = level + 1
 		self.Services.DataService:MarkChanged(player)
 		return true, string.format("%s upgraded to level %d!", def.Name, level + 1)
+	elseif action == "BuyFlashlightUpgrade" then
+		local def = EquipmentConfig.FlashlightUpgrades[id]
+		if not def then
+			return false, "Unknown upgrade"
+		end
+		local level = data.FlashlightUpgrades[id] or 0
+		if level >= def.MaxLevel then
+			return false, "Max level"
+		end
+		local price = def.Prices[level + 1]
+		if not self:SpendEvidence(player, price) then
+			return false, "Not enough Evidence (" .. Format.Money(price) .. ")"
+		end
+		data.FlashlightUpgrades[id] = level + 1
+		self.Services.DataService:MarkChanged(player)
+		self.Services.EquipmentService:RefreshTools(player)
+		return true, string.format("%s upgraded to level %d!", def.Name, level + 1)
+	elseif action == "EquipSkin" then
+		local skin = CosmeticsConfig.Skins[id]
+		if not skin then
+			return false, "Unknown skin"
+		end
+		if not self.Services.MonetizationService:OwnsCosmetic(player, id) then
+			return false, "You don't own this skin yet"
+		end
+		data.Cosmetics.Equipped[skin.Item] = id
+		self.Services.DataService:MarkChanged(player)
+		self.Services.EquipmentService:RefreshTools(player)
+		return true, skin.Name .. " equipped"
+	elseif action == "EquipDecor" then
+		local decor = CosmeticsConfig.Decor[id]
+		if not decor then
+			return false, "Unknown decoration"
+		end
+		if not self.Services.MonetizationService:OwnsCosmetic(player, id) then
+			return false, "You don't own this decoration yet"
+		end
+		data.Cosmetics.Decor = id
+		self.Services.DataService:MarkChanged(player)
+		return true, decor.Name .. " set up in your Dark Room"
 	elseif action == "BuyEquipment" then
 		local item = EquipmentConfig.Get(id)
 		if not item then
 			return false, "Unknown equipment"
 		end
-		if item.Price == 0 or data.OwnedEquipment[id] then
+		if item.Price == 0 or self.Services.EquipmentService:Owns(player, id) then
 			return false, "Already owned"
 		end
 		if not self:SpendEvidence(player, item.Price) then

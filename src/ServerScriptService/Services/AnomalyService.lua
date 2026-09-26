@@ -505,14 +505,14 @@ end
 ---------------------------------------------------------------------------
 
 function AnomalyService:GetParticipants(): { Player }
-	local round = self.Services.RoundService
+	local mission = self.Services.MissionService
 	local list = {}
-	if not round then
+	if not mission or mission.State ~= "Round" then
 		return list
 	end
-	for _, player in ipairs(round:GetParticipants()) do
+	for _, player in ipairs(mission:GetParticipants()) do
 		local root = self:GetCharacterParts(player)
-		if root then
+		if root and not self.Services.CharacterService:IsDowned(player) then
 			table.insert(list, player)
 		end
 	end

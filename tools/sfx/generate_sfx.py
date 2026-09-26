@@ -8,7 +8,7 @@ samples, no third-party audio) and packs them into four upload-friendly
 
     assets/audio/banks/Equipment.ogg   Camera, Flashlight, EMF, Thermal, UV, NightVision, Equipment
     assets/audio/banks/Player.ogg      footsteps, jumps/landings, doors, interactions
-    assets/audio/banks/World.ogg       anomalies, environment, UI
+    assets/audio/banks/World.ogg       anomalies, jumpscares, environment, UI
     assets/audio/banks/Loops.ogg       every looping sound (ambience, music, hums, breathing)
     assets/audio/loops/<Name>.ogg      the same loops as separate files (optional uploads)
 
@@ -42,6 +42,7 @@ from dsp import SR, N, finish  # noqa: E402
 import recipes_equipment  # noqa: E402
 import recipes_player  # noqa: E402
 import recipes_world  # noqa: E402
+import recipes_mission  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 
@@ -59,6 +60,7 @@ BANK_OF_CATEGORY = {
     "Anomaly": "World",
     "Environment": "World",
     "UI": "World",
+    "Jumpscare": "World",
 }
 BANK_ORDER = ["Equipment", "Player", "World", "Loops"]
 
@@ -74,6 +76,10 @@ LOOP_PATHS = {
     "ThermalScan": ["Thermal.ScanLoop"],
     "MusicLobby": ["Music.Lobby"],
     "MusicTension": ["Music.Tension"],
+    "CarAlarm": ["Anomaly.CarAlarm"],
+    "StoreAlarm": ["Anomaly.StoreAlarm"],
+    "TVStatic": ["Anomaly.TVStatic"],
+    "EntityDrone": ["Anomaly.EntityDrone"],
 }
 
 LEAD = 0.05  # silence at the very start of a bank
@@ -88,7 +94,7 @@ LOUDNESS = {"Equipment": (0.89, 0.2), "Player": (0.89, 0.22), "World": (0.89, 0.
 def collect():
     recipes = {}
     loops = {}
-    for module in (recipes_equipment, recipes_player, recipes_world):
+    for module in (recipes_equipment, recipes_player, recipes_world, recipes_mission):
         for path, value in module.RECIPES.items():
             if path in recipes:
                 raise SystemExit(f"duplicate recipe {path}")

@@ -12,14 +12,6 @@ local GameConfig = {}
 GameConfig.GameName = "CAUGHT ON CAMERA"
 GameConfig.MallName = "DEAD MALL"
 
-GameConfig.Round = {
-	MinPlayers = 1,
-	IntermissionTime = 25,
-	StudioIntermissionTime = 10, -- faster iteration while testing in Studio
-	RoundTime = 480, -- 8 minutes
-	ResultsTime = 12,
-}
-
 GameConfig.Spawning = {
 	FirstSpawnDelay = 3, -- first anomaly appears within seconds so new players "get it"
 	InitialBurst = 2,
@@ -128,7 +120,8 @@ GameConfig.Data = {
 
 GameConfig.Player = {
 	WalkSpeed = 16,
-	MaxZoomDistance = 20,
+	DownedTime = 15, -- a heavy anomaly attack knocks you down this long (teammates can revive)
+	ReviveHoldTime = 2.5,
 }
 
 -- Movement modes. Running is fast but LOUD; sneaking is slow and nearly silent.
@@ -183,51 +176,34 @@ GameConfig.Interaction = {
 	PhoneHintChance = 0.8,
 }
 
-GameConfig.NPC = {
-	Count = 6,
-	WalkSpeedMin = 5,
-	WalkSpeedMax = 7.5,
-	PauseMin = 1,
-	PauseMax = 4,
-	BodyColors = {
-		Color3.fromRGB(210, 200, 190),
-		Color3.fromRGB(180, 170, 165),
-		Color3.fromRGB(150, 140, 135),
-		Color3.fromRGB(200, 185, 160),
-	},
-	ClothingColors = {
-		Color3.fromRGB(70, 80, 110),
-		Color3.fromRGB(110, 60, 60),
-		Color3.fromRGB(60, 90, 70),
-		Color3.fromRGB(95, 90, 80),
-		Color3.fromRGB(120, 110, 70),
-	},
-}
-
-GameConfig.Zones = {
-	MainHall = "MAIN HALL",
-	FoodCourt = "FOOD COURT",
-	ToyStore = "TOY STORE",
-	Arcade = "ARCADE",
-	Cinema = "CINEMA",
-	Bathrooms = "BATHROOMS",
-	ParkingGarage = "PARKING GARAGE",
-	StorageHallway = "STORAGE HALLWAY",
-	SecurityOffice = "SECURITY OFFICE",
-}
-
 GameConfig.Map = {
-	AutoBuild = true, -- build the Dead Mall + Lobby from code when the folders are empty
-	RemoveBaseplate = true, -- the default template Baseplate z-fights with the mall floor
-	RemoveStraySpawns = true, -- SpawnLocations outside Workspace.Lobby are removed
+	RemoveBaseplate = true, -- the template Baseplate would z-fight with the maps
 }
 
--- Default Roblox R15 animations (owned by Roblox, usable in every experience).
+--[[
+	Standard Roblox R15 animation set (owned by Roblox, usable in every
+	experience). During an investigation every character uses exactly this
+	set, so avatar animation packages cannot cause floating, sliding or
+	broken equipment poses. The avatar itself is never modified.
+]]
 GameConfig.Animations = {
+	Idle = { "rbxassetid://507766666", "rbxassetid://507766951" },
 	Walk = "rbxassetid://507777826",
-	Idle = "rbxassetid://507766666",
+	Run = "rbxassetid://507767714",
+	Jump = "rbxassetid://507765000",
+	Fall = "rbxassetid://507767968",
+	Climb = "rbxassetid://507765644",
+	Swim = "rbxassetid://507784897",
+	SwimIdle = "rbxassetid://507785072",
 	Wave = "rbxassetid://507770239",
 	Point = "rbxassetid://507770453",
+}
+
+-- Camera rules: third person in the lobby, locked first person on missions.
+GameConfig.Camera = {
+	LobbyMinZoom = 6,
+	LobbyMaxZoom = 16,
+	MissionFieldOfView = 72,
 }
 
 -- Badge ids from the Creator Dashboard. 0 = disabled.
@@ -252,6 +228,8 @@ GameConfig.Settings = {
 	-- Booleans are toggles; numbers are volumes (clamped to 0..1 on the server).
 	ReducedFlashes = false,
 	ScreenShake = true,
+	BloodEffects = true, -- stylised blood overlays during jumpscares
+	ReducedJumpscares = false, -- JUMPSCARE INTENSITY: FULL (false) / REDUCED (true)
 	Hints = true,
 	Ambience = true,
 	MasterVolume = 1,

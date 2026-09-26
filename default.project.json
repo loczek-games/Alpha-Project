@@ -24,10 +24,25 @@
       },
       "Anomalies": {
         "$path": "src/ServerScriptService/Anomalies"
+      },
+      "World": {
+        "$path": "src/ServerScriptService/World"
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "AnomalyModels": {
+        "$path": "src/ServerStorage/AnomalyModels"
       }
     },
     "StarterPlayer": {
       "$className": "StarterPlayer",
+      "$properties": {
+        "CameraMaxZoomDistance": 16,
+        "CameraMinZoomDistance": 6,
+        "CharacterWalkSpeed": 16,
+        "LoadCharacterAppearance": true
+      },
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "ClientMain": {
@@ -45,19 +60,95 @@
       "$className": "StarterGui",
       "$path": "src/StarterGui"
     },
-    "Workspace": {
-      "$className": "Workspace",
-      "Map": {
-        "$className": "Folder",
-        "DeadMall": {
-          "$className": "Folder"
+    "SoundService": {
+      "$className": "SoundService",
+      "$properties": {
+        "AmbientReverb": "Hangar",
+        "RolloffScale": 1,
+        "DistanceFactor": 3.33
+      },
+      "Master": {
+        "$className": "SoundGroup",
+        "$properties": { "Volume": 1 },
+        "Music": { "$className": "SoundGroup", "$properties": { "Volume": 0.55 } },
+        "Ambience": { "$className": "SoundGroup", "$properties": { "Volume": 0.8 } },
+        "EquipmentSFX": { "$className": "SoundGroup", "$properties": { "Volume": 1 } },
+        "PlayerSFX": { "$className": "SoundGroup", "$properties": { "Volume": 1 } },
+        "AnomalySFX": { "$className": "SoundGroup", "$properties": { "Volume": 1 } },
+        "Jumpscares": { "$className": "SoundGroup", "$properties": { "Volume": 1 } },
+        "Voice": { "$className": "SoundGroup", "$properties": { "Volume": 1 } },
+        "UI": { "$className": "SoundGroup", "$properties": { "Volume": 0.8 } }
+      }
+    },
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Technology": "Future",
+        "Ambient": [0.07, 0.07, 0.08],
+        "OutdoorAmbient": [0.1, 0.1, 0.13],
+        "Brightness": 0.4,
+        "ClockTime": 0.5,
+        "GlobalShadows": true,
+        "EnvironmentDiffuseScale": 0.25,
+        "EnvironmentSpecularScale": 0.4,
+        "ExposureCompensation": 0.1,
+        "ColorShift_Top": [0, 0, 0],
+        "ColorShift_Bottom": [0, 0, 0],
+        "FogEnd": 100000,
+        "FogStart": 0
+      },
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Density": 0.34,
+          "Offset": 0.05,
+          "Color": [0.2, 0.21, 0.24],
+          "Decay": [0.08, 0.08, 0.1],
+          "Glare": 0,
+          "Haze": 1.4
         }
       },
-      "AnomalySpawns": {
-        "$className": "Folder"
+      "Grade": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": {
+          "Brightness": 0.02,
+          "Contrast": 0.14,
+          "Saturation": -0.28,
+          "TintColor": [0.95, 0.97, 1]
+        }
+      },
+      "Glow": {
+        "$className": "BloomEffect",
+        "$properties": {
+          "Intensity": 0.55,
+          "Size": 22,
+          "Threshold": 1.6
+        }
+      },
+      "Focus": {
+        "$className": "DepthOfFieldEffect",
+        "$properties": {
+          "Enabled": false,
+          "FarIntensity": 0.12,
+          "FocusDistance": 30,
+          "InFocusRadius": 40,
+          "NearIntensity": 0
+        }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "StreamingEnabled": true,
+        "StreamingMinRadius": 96,
+        "StreamingTargetRadius": 320,
+        "StreamingIntegrityMode": "PauseOutsideLoadedArea"
+      },
+      "ActiveMap": {
+        "$path": "assets/baked/DeadMall.rbxm"
       },
       "Lobby": {
-        "$className": "Folder"
+        "$path": "assets/baked/LobbyHQ.rbxm"
       }
     }
   }

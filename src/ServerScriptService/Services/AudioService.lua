@@ -107,6 +107,23 @@ function AudioService:Play(path: string, where: any, options: PlayOptions?)
 	end
 end
 
+-- Server-driven looping sound on a part (car alarm, store alarm, entity drone).
+-- Every client starts / stops it locally; late joiners get it through the
+-- "LoopSound" tag instead when the loop must persist.
+function AudioService:SetLoop(path: string, where: Instance, on: boolean)
+	if not SoundConfig.Get(path) then
+		warn("[AudioService] Unknown sound path", path)
+		return
+	end
+	if on then
+		where:SetAttribute("LoopSound", path)
+		where:AddTag("LoopSound")
+	else
+		where:RemoveTag("LoopSound")
+		where:SetAttribute("LoopSound", nil)
+	end
+end
+
 -- A moving series of sounds (e.g. footsteps walking from A to B).
 function AudioService:PlaySequence(path: string, from: Vector3, to: Vector3, count: number, interval: number, options: PlayOptions?)
 	local opts: PlayOptions = options or {}

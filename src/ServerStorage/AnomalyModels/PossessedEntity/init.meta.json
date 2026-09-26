@@ -1,0 +1,6 @@
+{
+  "className": "Folder",
+  "attributes": {
+    "Instructions": "Optional: drop a Model here (insert the catalog bundle with the Avatar/Toolbox, or your own rig). It replaces the automatic appearance for this anomaly. Leave empty to load the bundle automatically."
+  }
+}

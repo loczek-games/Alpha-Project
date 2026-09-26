@@ -1,0 +1,6 @@
+{
+  "className": "Folder",
+  "attributes": {
+    "Instructions": "Anomaly appearance overrides. See docs/ANOMALY_MODELS.md"
+  }
+}

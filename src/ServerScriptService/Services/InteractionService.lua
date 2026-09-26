@@ -24,6 +24,7 @@ local TweenService = game:GetService("TweenService")
 
 local Config = ReplicatedStorage:WaitForChild("Config")
 local GameConfig = require(Config:WaitForChild("GameConfig"))
+local MapConfig = require(Config:WaitForChild("MapConfig"))
 local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
 local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
 
@@ -111,7 +112,7 @@ function InteractionService:_randomAnomalyZone(): string?
 		return nil
 	end
 	local record = anomalies[math.random(1, #anomalies)]
-	return record.Zone and GameConfig.Zones[record.Zone] or nil
+	return if record.Zone then MapConfig.GetZoneName(record.Zone) else nil
 end
 
 ---------------------------------------------------------------------------
@@ -247,7 +248,7 @@ function InteractionService:_giveContents(player: Player, container: Instance, w
 	elseif contents == "SecurityKey" then
 		self.Keys[player] = true
 		audio:Play("Interaction.KeyPickup", where, { Source = player })
-		self:_toast(player, "🔑 SECURITY KEY found! The Security Office is off the Storage Hallway.", Color3.fromRGB(255, 215, 90))
+		self:_toast(player, "🔑 SECURITY KEY found! The SECURITY ROOM is at the end of the east employee hallway.", Color3.fromRGB(255, 215, 90))
 	elseif math.random() < 0.35 then
 		self:_toast(player, "Empty...", Color3.fromRGB(160, 160, 170))
 	end
@@ -381,7 +382,7 @@ function InteractionService:_spawnBattery(spot: BasePart)
 	glow.Parent = battery
 	local prompt = makePrompt(battery, "Take", "Battery")
 	prompt.MaxActivationDistance = 8
-	battery.Parent = self.Services.MapService.Folders.DeadMall
+	battery.Parent = self.Services.MapService.Folders.RoundItems
 	table.insert(self.Pickups, battery)
 	prompt.Triggered:Connect(function(player)
 		if not battery.Parent or not self:_canUse(player, battery) then
@@ -424,10 +425,10 @@ function InteractionService:_setupElevator(button: Instance)
 			if math.random() < 0.18 then
 				-- the doors open a crack... then close
 				for _, door in ipairs(CollectionService:GetTagged("ElevatorDoor")) do
-					if door:IsA("BasePart") then
+					if door:IsA("BasePart") and (door.Position - button.Position).Magnitude < 25 then
 						local closed = door.CFrame
-						local offset = if door.Name == "ElevatorLeft" then -0.5 else 0.5
-						tween(door, 0.6, { CFrame = closed + Vector3.new(offset, 0, 0) })
+						local side = door:GetAttribute("Side") or (if door.Name == "DoorLeft" then -1 else 1)
+						tween(door, 0.6, { CFrame = closed + closed.RightVector * side * 0.6 })
 						task.delay(1.4, function()
 							tween(door, 0.4, { CFrame = closed })
 						end)
@@ -584,7 +585,7 @@ function InteractionService:ResetForRound()
 		state.Busy = false
 		state.Prompt.ActionText = "Open"
 		table.insert(all, instance)
-		if instance:GetAttribute("Zone") ~= "SecurityOffice" then
+		if instance:GetAttribute("Zone") ~= "SecurityRoom" then
 			table.insert(keyCandidates, instance)
 		end
 	end

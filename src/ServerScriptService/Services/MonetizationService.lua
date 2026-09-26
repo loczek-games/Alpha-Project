@@ -17,6 +17,7 @@ local Config = ReplicatedStorage:WaitForChild("Config")
 local MonetizationConfig = require(Config:WaitForChild("MonetizationConfig"))
 local GameConfig = require(Config:WaitForChild("GameConfig"))
 local CameraConfig = require(Config:WaitForChild("CameraConfig"))
+local CosmeticsConfig = require(Config:WaitForChild("CosmeticsConfig"))
 
 local MonetizationService = {}
 MonetizationService.PassCache = {}
@@ -105,7 +106,7 @@ function MonetizationService:_applyPassEffects(player: Player)
 	if not player:IsDescendantOf(Players) then
 		return
 	end
-	player:SetAttribute("VIP", self:HasPass(player, "VIPPhotographer"))
+	player:SetAttribute("VIP", self:HasPass(player, "VIPInvestigator"))
 	local services = self.Services
 	if services.CharacterService then
 		services.CharacterService:RefreshCharacter(player)
@@ -128,6 +129,22 @@ function MonetizationService:GetOwnedPasses(player: Player)
 	return owned
 end
 
+-- Skins / dark room decor: free, included in a pass, or bought as a product.
+function MonetizationService:OwnsCosmetic(player: Player, cosmeticId: string): boolean
+	local def = CosmeticsConfig.Skins[cosmeticId] or CosmeticsConfig.Decor[cosmeticId]
+	if not def then
+		return false
+	end
+	if def.Free then
+		return true
+	end
+	if def.Pass and self:HasPass(player, def.Pass) then
+		return true
+	end
+	local data = self.Services.DataService:GetData(player)
+	return data ~= nil and data.Cosmetics.Owned[cosmeticId] == true
+end
+
 function MonetizationService:_grantProduct(player: Player, product): boolean
 	local services = self.Services
 	if product.Kind == "Evidence" then
@@ -135,9 +152,45 @@ function MonetizationService:_grantProduct(player: Player, product): boolean
 		return true
 	elseif product.Kind == "ServerEvent" then
 		return services.EventService:RequestPurchasedEvent(product.Event, player)
+	elseif product.Kind == "Revive" then
+		if services.CharacterService:IsDowned(player) then
+			services.CharacterService:Revive(player, nil)
+		else
+			local data = services.DataService:GetData(player)
+			if not data then
+				return false
+			end
+			data.ReviveTokens = (data.ReviveTokens or 0) + 1
+			services.DataService:MarkChanged(player)
+		end
+		self:_toast(player, "🩹 REVIVE ready. Thank you!")
+		return true
+	elseif product.Kind == "Cosmetic" then
+		local data = services.DataService:GetData(player)
+		if not data then
+			return false
+		end
+		data.Cosmetics.Owned[product.Cosmetic] = true
+		local skin = CosmeticsConfig.Skins[product.Cosmetic]
+		if skin then
+			data.Cosmetics.Equipped[skin.Item] = skin.Id
+		elseif CosmeticsConfig.Decor[product.Cosmetic] then
+			data.Cosmetics.Decor = product.Cosmetic
+		end
+		services.DataService:MarkChanged(player)
+		services.EquipmentService:RefreshTools(player)
+		self:_toast(player, string.format("%s %s unlocked!", product.Icon, product.Name))
+		return true
 	end
 	warn("[MonetizationService] Unknown product kind", product.Kind)
 	return false
+end
+
+function MonetizationService:_toast(player: Player, text: string)
+	local announceRemote = self.Services.EventService and self.Services.EventService.AnnounceRemote
+	if announceRemote then
+		announceRemote:FireClient(player, { Kind = "Toast", Text = text, Color = Color3.fromRGB(222, 184, 96) })
+	end
 end
 
 function MonetizationService:ProcessReceipt(receiptInfo)

@@ -21,6 +21,7 @@ local GameConfig = require(Config:WaitForChild("GameConfig"))
 local AnomalyConfig = require(Config:WaitForChild("AnomalyConfig"))
 local CameraConfig = require(Config:WaitForChild("CameraConfig"))
 local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
+local CosmeticsConfig = require(Config:WaitForChild("CosmeticsConfig"))
 local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
 
 local DataService = {}
@@ -60,7 +61,14 @@ local function buildTemplate()
 		OwnedCameras = { [CameraConfig.DefaultCamera] = true },
 		EquippedCamera = CameraConfig.DefaultCamera,
 		Upgrades = { Range = 0, Steady = 0, Sense = 0, Silent = 0 },
+		FlashlightUpgrades = { Beam = 0, Battery = 0, Shielding = 0 },
 		OwnedEquipment = starterEquipment(),
+		Cosmetics = {
+			Owned = {},
+			Equipped = table.clone(CosmeticsConfig.DefaultSkins),
+			Decor = "Classic",
+		},
+		ReviveTokens = 0,
 		DarkRoom = { Theme = "Default", Visits = 0 },
 		Settings = deepCopy(GameConfig.Settings),
 		PhotoRoll = {},
@@ -425,7 +433,7 @@ end
 
 function DataService:GetPhotoRollCapacity(player: Player): number
 	local monetization = self.Services.MonetizationService
-	if monetization and monetization:HasPass(player, "ExtraAlbumStorage") then
+	if monetization and (monetization:HasPass(player, "ExtraAlbumStorage") or monetization:HasPass(player, "VIPInvestigator")) then
 		return DATA.PhotoRollPassCapacity
 	end
 	return DATA.PhotoRollBaseCapacity
@@ -584,7 +592,10 @@ function DataService:GetClientView(player: Player)
 		OwnedCameras = owned,
 		EquippedCamera = data.EquippedCamera,
 		Upgrades = deepCopy(data.Upgrades),
-		OwnedEquipment = deepCopy(data.OwnedEquipment),
+		FlashlightUpgrades = deepCopy(data.FlashlightUpgrades),
+		OwnedEquipment = self:_ownedEquipmentView(player, data),
+		Cosmetics = self:_cosmeticsView(player, data),
+		ReviveTokens = data.ReviveTokens or 0,
 		Settings = deepCopy(data.Settings),
 		PhotoRoll = deepCopy(data.PhotoRoll),
 		PhotoRollCapacity = self:GetPhotoRollCapacity(player),
@@ -593,6 +604,29 @@ function DataService:GetClientView(player: Player)
 		Achievements = deepCopy(data.Achievements),
 		Stats = deepCopy(data.Stats),
 	}
+end
+
+function DataService:_ownedEquipmentView(player: Player, data)
+	local owned = deepCopy(data.OwnedEquipment)
+	local equipment = self.Services.EquipmentService
+	if equipment then
+		for id in pairs(EquipmentConfig.Items) do
+			owned[id] = equipment:Owns(player, id)
+		end
+	end
+	return owned
+end
+
+function DataService:_cosmeticsView(player: Player, data)
+	local owned = {}
+	local monetization = self.Services.MonetizationService
+	for id in pairs(CosmeticsConfig.Skins) do
+		owned[id] = if monetization then monetization:OwnsCosmetic(player, id) else data.Cosmetics.Owned[id] == true
+	end
+	for id in pairs(CosmeticsConfig.Decor) do
+		owned[id] = if monetization then monetization:OwnsCosmetic(player, id) else data.Cosmetics.Owned[id] == true
+	end
+	return { Owned = owned, Equipped = deepCopy(data.Cosmetics.Equipped), Decor = data.Cosmetics.Decor }
 end
 
 -- Batches rapid changes into a single DataUpdate.

@@ -2,9 +2,14 @@
 	HUDController (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/HUDController
 
-	Minimal, mobile-first HUD: round timer, current event, Evidence, Album
-	and Camera buttons, a subtle viewfinder reticle and the current zone.
-	(The big PHOTO button is owned by PhotoController.)
+	Mobile-first horror HUD with two modes:
+	  HQ       agency badge, Evidence, and the main menu:
+	           INVITE FRIENDS · PARTY · EQUIPMENT · ARCHIVE · SHOP · SETTINGS
+	  MISSION  CCTV strip "● REC  CASE #001 · DEAD MALL  07:12", current event,
+	           zone name, Evidence, a small menu (settings / leave mission)
+	           and the viewfinder reticle.
+	(The big PHOTO button is owned by PhotoController, the queue panel by
+	LobbyController.)
 ]]
 
 local Players = game:GetService("Players")
@@ -12,13 +17,24 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Config = ReplicatedStorage:WaitForChild("Config")
-local GameConfig = require(Config:WaitForChild("GameConfig"))
-local CameraConfig = require(Config:WaitForChild("CameraConfig"))
-local Format = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Format"))
+local MapConfig = require(Config:WaitForChild("MapConfig"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Format = require(Modules:WaitForChild("Format"))
+local Net = require(Modules:WaitForChild("Net"))
 
 local HUDController = {}
+HUDController.Mode = nil :: string?
 
 local player = Players.LocalPlayer
+
+local MENU = {
+	{ Id = "Invite", Icon = "📨", Label = "INVITE FRIENDS" },
+	{ Id = "Party", Icon = "👥", Label = "PARTY" },
+	{ Id = "Equipment", Icon = "🎒", Label = "EQUIPMENT" },
+	{ Id = "Archive", Icon = "🗂", Label = "ARCHIVE" },
+	{ Id = "Shop", Icon = "💀", Label = "SHOP" },
+	{ Id = "Settings", Icon = "⚙", Label = "SETTINGS" },
+}
 
 function HUDController:Init(controllers)
 	self.Controllers = controllers
@@ -30,160 +46,205 @@ function HUDController:Init(controllers)
 	self.Root = UIKit.ScaledRoot(self.Gui)
 	local root = self.Root
 
-	-- Round timer ------------------------------------------------------------
-	local timer = UIKit.Frame({
-		Name = "Timer",
+	---------------------------------------------------------------- top strip
+	local strip = UIKit.Frame({
+		Name = "CCTV",
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, 8),
-		Size = UDim2.fromOffset(250, 46),
+		Size = UDim2.fromOffset(330, 40),
 		BackgroundColor3 = theme.Bg,
 		BackgroundTransparency = 0.25,
 		Parent = root,
 	})
-	UIKit.Corner(timer, 23)
-	UIKit.Stroke(timer, theme.Stroke, 1.5, 0.4)
+	UIKit.Corner(strip, 3)
+	UIKit.Stroke(strip, theme.Stroke, 1, 0.4)
+	self.Strip = strip
 	self.RecDot = UIKit.Frame({
 		Name = "RecDot",
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 16, 0.5, 0),
-		Size = UDim2.fromOffset(12, 12),
-		BackgroundColor3 = theme.Accent,
-		Parent = timer,
+		Position = UDim2.new(0, 12, 0.5, 0),
+		Size = UDim2.fromOffset(10, 10),
+		BackgroundColor3 = theme.AccentBright,
+		Parent = strip,
 	})
-	UIKit.Corner(self.RecDot, 6)
+	UIKit.new("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.RecDot })
 	self.TimerLabel = UIKit.Label({
 		Name = "Label",
-		Text = "LOBBY",
-		Font = theme.FontBlack,
-		TextSize = 14,
+		Text = "P.I.A. HQ",
+		Font = theme.Font,
+		TextSize = 15,
 		TextColor3 = theme.SubText,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(36, 0),
-		Size = UDim2.new(0.55, -36, 1, 0),
-		Parent = timer,
+		Position = UDim2.fromOffset(30, 0),
+		Size = UDim2.new(0.7, -30, 1, 0),
+		Parent = strip,
 	})
 	self.TimerText = UIKit.Label({
 		Name = "Time",
-		Text = "0:00",
-		Font = theme.FontBlack,
-		TextSize = 24,
+		Text = "",
+		Font = theme.Font,
+		TextSize = 22,
+		TextColor3 = theme.Text,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -16, 0, 0),
-		Size = UDim2.new(0.45, 0, 1, 0),
-		Parent = timer,
+		Position = UDim2.new(1, -12, 0, 0),
+		Size = UDim2.new(0.3, 0, 1, 0),
+		Parent = strip,
 	})
 
-	-- Current event ------------------------------------------------------------
+	---------------------------------------------------------------- event + zone
 	self.EventPill = UIKit.Frame({
 		Name = "Event",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 60),
-		Size = UDim2.fromOffset(300, 34),
-		BackgroundColor3 = Color3.fromRGB(120, 60, 200),
-		BackgroundTransparency = 0.1,
+		Position = UDim2.new(0.5, 0, 0, 54),
+		Size = UDim2.fromOffset(320, 30),
+		BackgroundColor3 = theme.Accent,
+		BackgroundTransparency = 0.15,
 		Visible = false,
 		Parent = root,
 	})
-	UIKit.Corner(self.EventPill, 17)
-	self.EventText = UIKit.Label({
-		Text = "",
-		Font = theme.FontBlack,
-		TextSize = 16,
-		Parent = self.EventPill,
-	})
-
-	-- Zone name (fades in when you walk into a new area) ---------------------------
+	UIKit.Corner(self.EventPill, 3)
+	self.EventText = UIKit.Label({ Text = "", Font = theme.FontType, TextSize = 16, Parent = self.EventPill })
 	self.ZoneLabel = UIKit.Label({
 		Name = "Zone",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 100),
-		Size = UDim2.fromOffset(320, 26),
+		Position = UDim2.new(0.5, 0, 0, 90),
+		Size = UDim2.fromOffset(420, 28),
 		Text = "",
 		Font = theme.FontType,
-		TextSize = 20,
+		TextSize = 22,
+		TextColor3 = theme.Text,
 		TextTransparency = 1,
 		TextStrokeTransparency = 1,
 		Parent = root,
 	})
 
-	-- Evidence -------------------------------------------------------------------------
+	---------------------------------------------------------------- evidence
 	local evidence = UIKit.Frame({
 		Name = "Evidence",
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -12, 0, 8),
-		Size = UDim2.fromOffset(190, 46),
+		Size = UDim2.fromOffset(170, 44),
 		BackgroundColor3 = theme.Bg,
 		BackgroundTransparency = 0.25,
 		Parent = root,
 	})
-	UIKit.Corner(evidence, 14)
-	UIKit.Stroke(evidence, theme.Evidence, 1.5, 0.5)
+	UIKit.Corner(evidence, 3)
+	UIKit.Stroke(evidence, theme.Stroke, 1, 0.4)
 	UIKit.Label({
 		Text = "EVIDENCE",
-		Font = theme.FontBlack,
+		Font = theme.Font,
 		TextSize = 11,
 		TextColor3 = theme.SubText,
-		Position = UDim2.fromOffset(12, 4),
-		Size = UDim2.new(1, -24, 0, 12),
+		Position = UDim2.fromOffset(10, 3),
+		Size = UDim2.new(1, -20, 0, 12),
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = evidence,
 	})
 	self.EvidenceText = UIKit.Label({
 		Text = "$0",
-		Font = theme.FontBlack,
-		TextSize = 24,
+		Font = theme.Font,
+		TextSize = 22,
 		TextColor3 = theme.Evidence,
-		Position = UDim2.fromOffset(12, 16),
-		Size = UDim2.new(1, -24, 0, 28),
+		Position = UDim2.fromOffset(10, 15),
+		Size = UDim2.new(1, -20, 0, 26),
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = evidence,
 	})
 	self.EvidenceScale = UIKit.new("UIScale", { Parent = evidence })
 	self.DisplayedEvidence = 0
 
-	-- Left buttons: Album + Camera -------------------------------------------------------------
-	local left = UIKit.Frame({
-		Name = "LeftButtons",
+	---------------------------------------------------------------- HQ menu
+	local menu = UIKit.Frame({
+		Name = "Menu",
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 12, 0.4, 0),
-		Size = UDim2.fromOffset(84, 190),
+		Position = UDim2.new(0, 10, 0.5, 0),
+		Size = UDim2.fromOffset(150, 6 * 50),
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	UIKit.List(left, Enum.FillDirection.Vertical, 12)
-	local function sideButton(name: string, icon: string, label: string, order: number, callback: () -> ())
+	UIKit.List(menu, Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Left)
+	self.Menu = menu
+	self.MenuButtons = {}
+	for order, entry in ipairs(MENU) do
 		local button = UIKit.Button({
-			Name = name,
+			Name = entry.Id,
 			LayoutOrder = order,
-			Size = UDim2.fromOffset(84, 84),
+			Size = UDim2.fromOffset(150, 44),
 			BackgroundColor3 = theme.Bg,
-			BackgroundTransparency = 0.2,
-			CornerRadius = 20,
-			Parent = left,
-		}, callback)
-		UIKit.Stroke(button, theme.Stroke, 1.5, 0.3)
-		UIKit.Label({ Text = icon, TextSize = 34, Size = UDim2.new(1, 0, 0.66, 0), Parent = button })
-		local text = UIKit.Label({
-			Name = "Caption",
-			Text = label,
-			Font = theme.FontBlack,
-			TextSize = 12,
-			Position = UDim2.fromScale(0, 0.62),
-			Size = UDim2.new(1, 0, 0.34, 0),
+			BackgroundTransparency = 0.18,
+			Text = "",
+			Parent = menu,
+		}, function()
+			self:OpenMenu(entry.Id)
+		end)
+		UIKit.Label({ Text = entry.Icon, TextSize = 20, Position = UDim2.fromOffset(6, 0), Size = UDim2.new(0, 30, 1, 0), Parent = button })
+		UIKit.Label({
+			Text = entry.Label,
+			Font = theme.FontType,
+			TextSize = 14,
+			TextColor3 = if entry.Id == "Invite" then theme.AccentBright else theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Position = UDim2.fromOffset(40, 0),
+			Size = UDim2.new(1, -44, 1, 0),
 			Parent = button,
 		})
-		return button, text
+		self.MenuButtons[entry.Id] = button
 	end
-	sideButton("Album", "📖", "ALBUM", 1, function()
-		UIKit.TogglePanel("Album")
-	end)
-	local _, cameraCaption = sideButton("Camera", "📷", "CAMERA", 2, function()
-		UIKit.TogglePanel("Shop")
-	end)
-	self.CameraCaption = cameraCaption
 
-	-- Viewfinder reticle ------------------------------------------------------------------------
+	---------------------------------------------------------------- mission menu
+	self.MissionMenuButton = UIKit.Button({
+		Name = "MissionMenu",
+		Text = "≡",
+		TextSize = 26,
+		Font = theme.Font,
+		Position = UDim2.fromOffset(10, 8),
+		Size = UDim2.fromOffset(44, 40),
+		BackgroundColor3 = theme.Bg,
+		BackgroundTransparency = 0.25,
+		Visible = false,
+		Parent = root,
+	}, function()
+		self:_toggleMissionMenu()
+	end)
+	local missionMenu = UIKit.Card({
+		Name = "MissionMenuPanel",
+		Position = UDim2.fromOffset(10, 54),
+		Size = UDim2.fromOffset(190, 3 * 46 + 16),
+		BackgroundColor3 = theme.Bg,
+		Visible = false,
+		ZIndex = 5,
+		Parent = root,
+	})
+	UIKit.Padding(missionMenu, 8)
+	UIKit.List(missionMenu, Enum.FillDirection.Vertical, 6)
+	self.MissionMenu = missionMenu
+	local function missionButton(order: number, text: string, color: Color3, callback: () -> ())
+		UIKit.Button({
+			LayoutOrder = order,
+			Text = text,
+			Font = theme.FontType,
+			TextSize = 15,
+			Size = UDim2.new(1, 0, 0, 40),
+			BackgroundColor3 = color,
+			ZIndex = 6,
+			Parent = missionMenu,
+		}, function()
+			missionMenu.Visible = false
+			callback()
+		end)
+	end
+	missionButton(1, "SETTINGS", theme.Panel2, function()
+		UIKit.OpenPanel("Settings")
+	end)
+	missionButton(2, "ARCHIVE", theme.Panel2, function()
+		UIKit.OpenPanel("Album")
+	end)
+	missionButton(3, "LEAVE MISSION", theme.Accent, function()
+		self:_confirmLeave()
+	end)
+
+	---------------------------------------------------------------- reticle
 	local reticle = UIKit.Frame({
 		Name = "Reticle",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -201,17 +262,17 @@ function HUDController:Init(controllers)
 		{ Vector2.new(1, 1), UDim2.fromScale(1, 1) },
 	}
 	for _, corner in ipairs(corners) do
-		local horizontal = UIKit.Frame({ AnchorPoint = corner[1], Position = corner[2], Size = UDim2.fromOffset(20, 3), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.45, Parent = reticle })
-		local vertical = UIKit.Frame({ AnchorPoint = corner[1], Position = corner[2], Size = UDim2.fromOffset(3, 20), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.45, Parent = reticle })
+		local horizontal = UIKit.Frame({ AnchorPoint = corner[1], Position = corner[2], Size = UDim2.fromOffset(18, 2), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.5, Parent = reticle })
+		local vertical = UIKit.Frame({ AnchorPoint = corner[1], Position = corner[2], Size = UDim2.fromOffset(2, 18), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.5, Parent = reticle })
 		table.insert(self.ReticleParts, horizontal)
 		table.insert(self.ReticleParts, vertical)
 	end
-	local dot = UIKit.Frame({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(6, 6), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.35, Parent = reticle })
-	UIKit.Corner(dot, 3)
+	local dot = UIKit.Frame({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(4, 4), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.35, Parent = reticle })
+	UIKit.new("UICorner", { CornerRadius = UDim.new(1, 0), Parent = dot })
 	table.insert(self.ReticleParts, dot)
 	self.ReticleScale = UIKit.new("UIScale", { Parent = reticle })
 
-	-- Wire up state -------------------------------------------------------------------------
+	---------------------------------------------------------------- state
 	state.DataChanged:Connect(function(data, previous)
 		self:_onData(data, previous)
 	end)
@@ -219,8 +280,10 @@ function HUDController:Init(controllers)
 		self:_refreshEvent()
 	end)
 	state.RoundChanged:Connect(function()
+		self:_refreshMode()
 		self:_refreshTimer()
 	end)
+	self:_refreshMode()
 end
 
 function HUDController:Start()
@@ -238,6 +301,60 @@ function HUDController:Start()
 		end
 	end)
 end
+
+---------------------------------------------------------------------------
+-- Menu actions
+---------------------------------------------------------------------------
+
+function HUDController:OpenMenu(id: string)
+	local controllers = self.Controllers
+	local UIKit = controllers.UIKit
+	if id == "Invite" then
+		controllers.PartyController:InviteFriends()
+	elseif id == "Party" then
+		UIKit.TogglePanel("Party")
+	elseif id == "Equipment" then
+		controllers.ShopController:OpenTab("EQUIPMENT")
+	elseif id == "Archive" then
+		UIKit.TogglePanel("Album")
+	elseif id == "Shop" then
+		controllers.ShopController:OpenTab("STORE")
+	elseif id == "Settings" then
+		UIKit.TogglePanel("Settings")
+	end
+end
+
+function HUDController:_toggleMissionMenu()
+	self.MissionMenu.Visible = not self.MissionMenu.Visible
+end
+
+function HUDController:_confirmLeave()
+	local announcements = self.Controllers.AnnouncementController
+	announcements:Confirm("LEAVE THE INVESTIGATION?", "You keep your evidence. Your team stays inside.", "LEAVE", function()
+		Net.Event("MissionRequest"):FireServer("Leave")
+	end)
+end
+
+function HUDController:_refreshMode()
+	local state = self.Controllers.ClientState
+	local mode = if state:IsInMission() then "Mission" else "Lobby"
+	if mode == self.Mode then
+		return
+	end
+	self.Mode = mode
+	local inMission = mode == "Mission"
+	self.Menu.Visible = not inMission
+	self.MissionMenuButton.Visible = inMission
+	self.MissionMenu.Visible = false
+	self.Reticle.Visible = inMission
+	if not inMission then
+		self.ZoneLabel.TextTransparency = 1
+	end
+end
+
+---------------------------------------------------------------------------
+-- Evidence
+---------------------------------------------------------------------------
 
 function HUDController:_onData(data, previous)
 	if not data then
@@ -270,87 +387,99 @@ function HUDController:_onData(data, previous)
 	else
 		self.EvidenceText.Text = Format.Money(target)
 	end
-	local camera = CameraConfig.Get(self.Controllers.ClientState:GetEquippedCameraId())
-	if camera then
-		self.CameraCaption.Text = (string.upper(camera.Name):gsub(" CAMERA", ""))
-	end
 end
+
+---------------------------------------------------------------------------
+-- Timer strip
+---------------------------------------------------------------------------
 
 function HUDController:_refreshTimer()
 	local state = self.Controllers.ClientState
 	local round = state.Round
-	local remaining = math.max(0, (round.EndsAt or 0) - state:Now())
 	local theme = self.Controllers.UIKit.Theme
-	if round.State == "Round" then
-		self.TimerLabel.Text = GameConfig.MallName
-		self.TimerText.Text = Format.Time(remaining)
-		self.TimerText.TextColor3 = if remaining <= 30 then theme.Accent else theme.Text
-		self.RecDot.Visible = (math.floor(os.clock() * 2) % 2) == 0
-	elseif round.State == "Results" then
-		self.TimerLabel.Text = "ROUND OVER"
-		self.TimerText.Text = "RESULTS"
-		self.TimerText.TextColor3 = theme.Gold
-		self.RecDot.Visible = false
-	else
-		self.RecDot.Visible = false
-		self.TimerText.TextColor3 = theme.Text
-		if round.Waiting then
-			self.TimerLabel.Text = "WAITING FOR"
-			self.TimerText.Text = "PLAYERS"
-		else
-			self.TimerLabel.Text = "NEXT ROUND"
+	local remaining = math.max(0, (round.EndsAt or 0) - state:Now())
+	local map = MapConfig.Get(round.MapId or "DeadMall") or MapConfig.Maps.DeadMall
+	local blink = (math.floor(os.clock() * 2) % 2) == 0
+	if state:IsInMission() then
+		if round.State == "Round" then
+			self.TimerLabel.Text = string.format("REC  %s · %s", map.Case, map.Name)
 			self.TimerText.Text = Format.Time(remaining)
+			self.TimerText.TextColor3 = if remaining <= 30 then theme.AccentBright else theme.Text
+			self.RecDot.Visible = blink
+		elseif round.State == "Intro" then
+			self.TimerLabel.Text = "DEPLOYING · " .. map.Name
+			self.TimerText.Text = ""
+			self.RecDot.Visible = blink
+		else
+			self.TimerLabel.Text = "INVESTIGATION OVER"
+			self.TimerText.Text = "REPORT"
+			self.TimerText.TextColor3 = theme.Gold
+			self.RecDot.Visible = false
 		end
+	else
+		self.TimerLabel.Text = "CAM 01 · P.I.A. HQ"
+		self.TimerText.TextColor3 = theme.SubText
+		self.TimerText.Text = os.date("!%H:%M") :: string
+		self.RecDot.Visible = blink
 	end
 end
 
 function HUDController:_refreshEvent()
 	local state = self.Controllers.ClientState
 	local event = state.Event
-	if not event or not event.Id then
+	if not event or not event.Id or not state:IsInRound() then
 		self.EventPill.Visible = false
 		return
 	end
 	local remaining = math.max(0, (event.EndsAt or 0) - state:Now())
 	self.EventPill.Visible = true
-	self.EventPill.BackgroundColor3 = event.Color or Color3.fromRGB(120, 60, 200)
-	self.EventText.Text = string.format("%s %s  %s", event.Icon or "⚠️", event.Name or "EVENT", Format.Time(remaining))
+	self.EventPill.BackgroundColor3 = event.Color or self.Controllers.UIKit.Theme.Accent
+	self.EventText.Text = string.format("%s %s  %s", event.Icon or "!", event.Name or "EVENT", Format.Time(remaining))
 end
+
+---------------------------------------------------------------------------
+-- Zone name (read from the map's Zones model)
+---------------------------------------------------------------------------
 
 function HUDController:_refreshZone()
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local zoneName = nil
 	local zoneId = nil
 	if root and root:IsA("BasePart") then
-		local map = Workspace:FindFirstChild("Map")
-		local mall = map and map:FindFirstChild("DeadMall")
-		local zones = mall and mall:FindFirstChild("Zones")
+		local map = Workspace:FindFirstChild("ActiveMap")
+		local zones = map and map:FindFirstChild("Zones")
 		if zones then
 			for _, bounds in ipairs(zones:GetChildren()) do
 				if bounds:IsA("BasePart") then
 					local localPoint = bounds.CFrame:PointToObjectSpace(root.Position)
 					local half = bounds.Size / 2
 					if math.abs(localPoint.X) <= half.X and math.abs(localPoint.Z) <= half.Z and math.abs(localPoint.Y) <= half.Y + 4 then
-						zoneName = bounds:GetAttribute("DisplayName") or bounds.Name
 						zoneId = bounds.Name
 						break
 					end
 				end
 			end
 		end
+		if not zoneId then
+			local lobby = Workspace:FindFirstChild("Lobby")
+			if lobby and self.Controllers.ClientState.InDarkRoom then
+				zoneId = "DarkRoom"
+			elseif lobby then
+				zoneId = "Lobby"
+			end
+		end
 	end
 	self.CurrentZoneId = zoneId
-	if zoneName == self.CurrentZone then
+	if zoneId == self.CurrentZone then
 		return
 	end
-	self.CurrentZone = zoneName
-	if not zoneName then
+	self.CurrentZone = zoneId
+	if not zoneId or not self.Controllers.ClientState:IsInRound() then
 		return
 	end
 	local UIKit = self.Controllers.UIKit
-	self.ZoneLabel.Text = "📍 " .. zoneName
-	UIKit.Tween(self.ZoneLabel, 0.3, { TextTransparency = 0, TextStrokeTransparency = 0.5 })
+	self.ZoneLabel.Text = MapConfig.GetZoneName(zoneId)
+	UIKit.Tween(self.ZoneLabel, 0.3, { TextTransparency = 0, TextStrokeTransparency = 0.4 })
 	local token = os.clock()
 	self.ZoneToken = token
 	task.delay(2.6, function()
@@ -366,7 +495,7 @@ function HUDController:PulseReticle(color: Color3)
 	for _, part in ipairs(self.ReticleParts) do
 		part.BackgroundColor3 = color
 		part.BackgroundTransparency = 0
-		UIKit.Tween(part, 0.6, { BackgroundTransparency = 0.45, BackgroundColor3 = Color3.new(1, 1, 1) })
+		UIKit.Tween(part, 0.6, { BackgroundTransparency = 0.5, BackgroundColor3 = Color3.new(1, 1, 1) })
 	end
 	self.ReticleScale.Scale = 0.8
 	UIKit.Tween(self.ReticleScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)

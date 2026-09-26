@@ -121,7 +121,7 @@ function AdminService:_run(player: Player, message: string)
 			self:_reply(player, "Unknown anomaly. Try /anomalies")
 			return
 		end
-		if services.RoundService.State ~= "Round" then
+		if services.MissionService.State ~= "Round" then
 			self:_reply(player, "Start a round first: /round start")
 			return
 		end
@@ -138,10 +138,10 @@ function AdminService:_run(player: Player, message: string)
 	elseif command == "round" then
 		local sub = string.lower(args[2] or "")
 		if sub == "start" then
-			services.RoundService:ForceStart()
-			self:_reply(player, "Starting round")
+			local ok, reason = services.MissionService:ForceStart()
+			self:_reply(player, if ok then "Deploying everyone to the Dead Mall" else ("Cannot start: " .. tostring(reason)))
 		elseif sub == "end" then
-			services.RoundService:ForceEnd()
+			services.MissionService:ForceEnd()
 			self:_reply(player, "Ending round")
 		else
 			self:_reply(player, "Usage: /round start | /round end")
@@ -162,7 +162,7 @@ function AdminService:_run(player: Player, message: string)
 		print("[AdminService] Anomalies: " .. table.concat(ids, ", "))
 		self:_reply(player, "Anomaly ids printed to the Output window")
 	elseif command == "phantom" then
-		if services.RoundService.State ~= "Round" then
+		if services.MissionService.State ~= "Round" then
 			self:_reply(player, "Start a round first: /round start")
 			return
 		end

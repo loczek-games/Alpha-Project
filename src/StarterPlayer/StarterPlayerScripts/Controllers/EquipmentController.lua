@@ -102,13 +102,19 @@ function EquipmentController:Init(controllers)
 	controllers.ClientState.DataChanged:Connect(function()
 		self:_buildSlots()
 	end)
+	-- equipment belongs to missions: the hotbar is hidden at HQ
+	local function refreshVisibility()
+		self.Hotbar.Visible = controllers.ClientState:IsInMission()
+	end
+	controllers.ClientState.RoundChanged:Connect(refreshVisibility)
+	refreshVisibility()
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
 		end
 		local index = KEYS[input.KeyCode]
-		if index then
+		if index and controllers.ClientState:IsInMission() then
 			self:SelectSlot(index)
 		end
 	end)
@@ -319,6 +325,9 @@ function EquipmentController:_onState(state)
 	local previous = self.Battery
 	for id, value in pairs(state.Battery or {}) do
 		local before = previous[id]
+		if before and value > before + 5 and id == self.Equipped then
+			self.Controllers.ViewmodelController:BatteryChange()
+		end
 		if before then
 			if before > EquipmentConfig.LowBattery and value <= EquipmentConfig.LowBattery and value > 0 then
 				audio:Play(LOW_BATTERY_SOUNDS[id] or "Camera.BatteryLow", nil)

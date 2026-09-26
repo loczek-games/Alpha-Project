@@ -2,9 +2,10 @@
 	ClientState (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/ClientState
 
-	The client's read-only mirror of server state (player data, round,
-	current event, dark room). Controllers listen to its signals instead of
-	remotes directly. Nothing here can grant anything - it is display only.
+	The client's read-only mirror of server state (player data, mission,
+	queue, party, current event, dark room, downed). Controllers listen to its
+	signals instead of remotes directly. Nothing here can grant anything -
+	it is display only.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,14 +21,20 @@ local Signal = require(Modules:WaitForChild("Signal"))
 
 local ClientState = {}
 ClientState.Data = nil :: any
-ClientState.Round = { State = "Intermission", EndsAt = 0, RoundNumber = 0, Waiting = false }
+ClientState.Round = { State = "Lobby", EndsAt = 0, RoundNumber = 0, MapId = "DeadMall", Participant = false } :: any
 ClientState.Event = { Id = nil } :: any
 ClientState.InDarkRoom = false
+ClientState.Queue = nil :: any -- the queue zone you stand in
+ClientState.Party = nil :: any
+ClientState.Downed = nil :: any
 
 ClientState.DataChanged = Signal.new()
 ClientState.RoundChanged = Signal.new()
 ClientState.EventChanged = Signal.new()
 ClientState.DarkRoomChanged = Signal.new()
+ClientState.QueueChanged = Signal.new()
+ClientState.PartyChanged = Signal.new()
+ClientState.DownedChanged = Signal.new()
 
 function ClientState:Init()
 	Net.Event("DataUpdate").OnClientEvent:Connect(function(data)
@@ -43,6 +50,18 @@ function ClientState:Init()
 	Net.Event("EventUpdate").OnClientEvent:Connect(function(event)
 		self.Event = event or { Id = nil }
 		self.EventChanged:Fire(self.Event)
+	end)
+	Net.Event("QueueUpdate").OnClientEvent:Connect(function(queue)
+		self.Queue = if type(queue) == "table" then queue else nil
+		self.QueueChanged:Fire(self.Queue)
+	end)
+	Net.Event("PartyUpdate").OnClientEvent:Connect(function(party)
+		self.Party = party
+		self.PartyChanged:Fire(party)
+	end)
+	Net.Event("PlayerDowned").OnClientEvent:Connect(function(info)
+		self.Downed = if type(info) == "table" and info.Downed then info else nil
+		self.DownedChanged:Fire(info)
 	end)
 	Net.Event("DarkRoomState").OnClientEvent:Connect(function(state)
 		self.InDarkRoom = state and state.Inside == true
@@ -100,8 +119,18 @@ function ClientState:CountDiscovered(): number
 	return count
 end
 
+-- Investigating right now (inside the map while the mission runs)?
 function ClientState:IsInRound(): boolean
-	return self.Round.State == "Round"
+	return self.Round.State == "Round" and self.Round.Participant == true
+end
+
+-- Part of the current mission (intro, investigation or results)?
+function ClientState:IsInMission(): boolean
+	return self.Round.Participant == true and self.Round.State ~= "Lobby"
+end
+
+function ClientState:IsInLobby(): boolean
+	return not self:IsInMission()
 end
 
 return ClientState

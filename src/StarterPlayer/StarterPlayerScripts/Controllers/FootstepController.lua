@@ -2,9 +2,11 @@
 	FootstepController (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/FootstepController
 
-	Material-based 3D footsteps for every nearby humanoid: players, the mall's
-	shoppers and humanoid anomalies (a Fake Player walks exactly like a real
-	one...). Steps follow the actual movement speed:
+	Material-based 3D footsteps for every nearby humanoid: players and
+	humanoid anomalies (a Fake Player walks exactly like a real one...).
+	Speed is measured from the POSITION DELTA (smoothed), so anomalies moved
+	by AlignPosition / CFrame and laggy remote players still step correctly.
+	Steps follow the actual movement speed:
 	  sneaking = very quiet, walking = normal, running = loud.
 	Landings play a normal or heavy impact. The surface comes from the floor
 	material (or a "FootstepSurface" attribute on the floor part).
@@ -56,16 +58,11 @@ function FootstepController:_refreshTracked()
 			table.insert(models, other.Character)
 		end
 	end
-	for _, path in ipairs({ { "Map", "DeadMall", "NPCs" }, { "ActiveAnomalies" } }) do
-		local node: Instance? = Workspace
-		for _, name in ipairs(path) do
-			node = node and node:FindFirstChild(name)
-		end
-		if node then
-			for _, child in ipairs(node:GetChildren()) do
-				if child:IsA("Model") and child:FindFirstChildOfClass("Humanoid") then
-					table.insert(models, child)
-				end
+	local anomalies = Workspace:FindFirstChild("ActiveAnomalies")
+	if anomalies then
+		for _, child in ipairs(anomalies:GetChildren()) do
+			if child:IsA("Model") and child:FindFirstChildOfClass("Humanoid") and child:GetAttribute("Footsteps") ~= false then
+				table.insert(models, child)
 			end
 		end
 	end
@@ -75,7 +72,7 @@ function FootstepController:_refreshTracked()
 		table.insert(exclude, model)
 		local root = model:FindFirstChild("HumanoidRootPart")
 		if root and root:IsA("BasePart") and (root.Position - origin).Magnitude < TRACK_RANGE then
-			keep[model] = self.Tracked[model] or { Phase = 0.6, LastVY = 0, Root = root, Humanoid = model:FindFirstChildOfClass("Humanoid") }
+			keep[model] = self.Tracked[model] or { Phase = 0.6, LastVY = 0, Root = root, Humanoid = model:FindFirstChildOfClass("Humanoid"), LastPosition = root.Position, Velocity = Vector3.zero }
 		end
 	end
 	for _, name in ipairs({ "ActiveAnomalies", "Decoys" }) do
@@ -111,8 +108,16 @@ function FootstepController:_step(dt: number)
 			self.Tracked[model] = nil
 			continue
 		end
-		local velocity = root.AssemblyLinearVelocity
-		local feet = root.Position - Vector3.new(0, 2.8, 0)
+		-- velocity from the position delta (works for anchored / AlignPosition movers too)
+		local position = root.Position
+		local measured = if dt > 0 then (position - state.LastPosition) / dt else Vector3.zero
+		state.LastPosition = position
+		if measured.Magnitude > 120 then
+			measured = Vector3.zero -- teleported
+		end
+		state.Velocity = state.Velocity:Lerp(measured, math.min(1, dt * 12))
+		local velocity = state.Velocity
+		local feet = position - Vector3.new(0, 2.8, 0)
 
 		-- jumps & landings
 		if velocity.Y > 30 and state.LastVY < 6 then

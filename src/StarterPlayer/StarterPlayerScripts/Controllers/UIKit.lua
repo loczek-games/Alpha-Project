@@ -5,6 +5,11 @@
 	Tiny UI toolkit: instance builder, theme, responsive scaling (UIScale
 	driven by screen size, mobile first), buttons with press feedback and a
 	one-panel-at-a-time panel manager.
+
+	LOOK: dark horror investigation equipment - near-black panels, bone
+	coloured typewriter text, blood-red accents, evidence-folder panels with
+	paper tabs, CCTV scanlines and analog static. Every panel in the game is
+	built through this module, so the whole UI shares one style.
 ]]
 
 local Players = game:GetService("Players")
@@ -15,23 +20,26 @@ local UserInputService = game:GetService("UserInputService")
 local UIKit = {}
 
 UIKit.Theme = {
-	Bg = Color3.fromRGB(12, 12, 16),
-	Panel = Color3.fromRGB(22, 22, 30),
-	Panel2 = Color3.fromRGB(34, 34, 46),
-	Panel3 = Color3.fromRGB(48, 48, 64),
-	Stroke = Color3.fromRGB(80, 80, 104),
-	Text = Color3.fromRGB(242, 242, 248),
-	SubText = Color3.fromRGB(165, 165, 182),
-	Accent = Color3.fromRGB(235, 64, 64),
-	Evidence = Color3.fromRGB(120, 230, 140),
-	Gold = Color3.fromRGB(255, 210, 80),
-	Good = Color3.fromRGB(110, 225, 130),
-	Paper = Color3.fromRGB(244, 239, 228),
-	Ink = Color3.fromRGB(28, 26, 24),
-	Font = Enum.Font.GothamBold,
-	FontBlack = Enum.Font.GothamBlack,
-	FontBody = Enum.Font.GothamMedium,
+	Bg = Color3.fromRGB(8, 8, 9),
+	Panel = Color3.fromRGB(17, 16, 16),
+	Panel2 = Color3.fromRGB(27, 25, 24),
+	Panel3 = Color3.fromRGB(42, 39, 37),
+	Stroke = Color3.fromRGB(74, 68, 62),
+	Text = Color3.fromRGB(226, 220, 208),
+	SubText = Color3.fromRGB(142, 136, 126),
+	Accent = Color3.fromRGB(176, 28, 32),
+	AccentBright = Color3.fromRGB(230, 50, 50),
+	Evidence = Color3.fromRGB(150, 205, 140),
+	Gold = Color3.fromRGB(222, 184, 96),
+	Good = Color3.fromRGB(122, 192, 120),
+	Paper = Color3.fromRGB(214, 206, 188),
+	Ink = Color3.fromRGB(30, 26, 22),
+	CCTV = Color3.fromRGB(150, 220, 170),
+	Font = Enum.Font.Code,
+	FontBlack = Enum.Font.SpecialElite,
+	FontBody = Enum.Font.RobotoMono,
 	FontType = Enum.Font.SpecialElite,
+	MaxCorner = 4,
 }
 
 UIKit.Panels = {}
@@ -68,7 +76,8 @@ function UIKit.Corner(parent: Instance, radius: number | UDim?): UICorner
 	if typeof(radius) == "UDim" then
 		corner.CornerRadius = radius
 	else
-		corner.CornerRadius = UDim.new(0, (radius :: number?) or 12)
+		-- square-ish "equipment" corners everywhere
+		corner.CornerRadius = UDim.new(0, math.min((radius :: number?) or 3, UIKit.Theme.MaxCorner))
 	end
 	corner.Parent = parent
 	return corner
@@ -151,12 +160,24 @@ function UIKit.Button(props: { [string]: any }, onActivated: (() -> ())?): TextB
 		Text = "",
 	}
 	for key, value in pairs(props) do
-		if key ~= "CornerRadius" then
+		if key ~= "CornerRadius" and key ~= "NoStroke" then
 			defaults[key] = value
 		end
 	end
 	local button = UIKit.new("TextButton", defaults)
-	UIKit.Corner(button, props.CornerRadius or 12)
+	UIKit.Corner(button, props.CornerRadius or 3)
+	if props.NoStroke ~= true then
+		local stroke = UIKit.Stroke(button, UIKit.Theme.Stroke, 1, 0.35)
+		stroke.Name = "Edge"
+		button.MouseEnter:Connect(function()
+			stroke.Color = UIKit.Theme.AccentBright
+			stroke.Transparency = 0
+		end)
+		button.MouseLeave:Connect(function()
+			stroke.Color = UIKit.Theme.Stroke
+			stroke.Transparency = 0.35
+		end)
+	end
 	local scale = Instance.new("UIScale")
 	scale.Parent = button
 	button.MouseButton1Down:Connect(function()
@@ -279,22 +300,106 @@ function UIKit.IsAnyPanelOpen(): boolean
 	return UIKit.OpenPanelName ~= nil
 end
 
--- Standard modal panel: dark rounded card with a title bar and close button.
+-- CCTV scanlines over a frame (cheap: a handful of 1px frames).
+function UIKit.Scanlines(parent: Instance, count: number?, transparency: number?, zIndex: number?)
+	local holder = UIKit.new("Frame", {
+		Name = "Scanlines",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = zIndex or 1,
+		Parent = parent,
+	})
+	local lines = count or 36
+	for i = 0, lines - 1 do
+		UIKit.new("Frame", {
+			Position = UDim2.fromScale(0, i / lines),
+			Size = UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = Color3.new(0, 0, 0),
+			BackgroundTransparency = transparency or 0.82,
+			BorderSizePixel = 0,
+			ZIndex = zIndex or 1,
+			Parent = holder,
+		})
+	end
+	return holder
+end
+
+-- Analog static: a few jittering bars (stops when the frame is destroyed).
+function UIKit.Static(parent: GuiObject, bars: number?, zIndex: number?)
+	local holder = UIKit.new("Frame", {
+		Name = "Static",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		ZIndex = zIndex or 1,
+		Parent = parent,
+	})
+	local list = {}
+	for i = 1, bars or 6 do
+		list[i] = UIKit.new("Frame", {
+			BackgroundColor3 = Color3.fromRGB(220, 220, 220),
+			BackgroundTransparency = 0.95,
+			BorderSizePixel = 0,
+			ZIndex = zIndex or 1,
+			Parent = holder,
+		})
+	end
+	task.spawn(function()
+		while holder.Parent do
+			if holder.AbsoluteSize.X > 0 and (parent :: GuiObject).Visible then
+				for _, bar in ipairs(list) do
+					bar.Position = UDim2.fromScale(0, math.random())
+					bar.Size = UDim2.new(1, 0, 0, math.random(1, 3))
+					bar.BackgroundTransparency = 0.9 + math.random() * 0.09
+				end
+			end
+			task.wait(0.08)
+		end
+	end)
+	return holder
+end
+
+-- Standard modal panel: an EVIDENCE FOLDER. Paper tab with the typed title,
+-- dark body with scanlines, red "CONFIDENTIAL" rule and a close button.
 function UIKit.BuildPanel(parent: Instance, title: string, onClose: () -> ())
 	local theme = UIKit.Theme
 	local panel = UIKit.Frame({
 		Name = "Panel",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.94, 0.9),
+		Position = UDim2.fromScale(0.5, 0.52),
+		Size = UDim2.fromScale(0.94, 0.88),
 		BackgroundColor3 = theme.Bg,
-		BackgroundTransparency = 0.04,
+		BackgroundTransparency = 0.02,
 		Visible = false,
 		Parent = parent,
 	})
 	UIKit.new("UISizeConstraint", { MaxSize = Vector2.new(980, 700), Parent = panel })
-	UIKit.Corner(panel, 18)
-	UIKit.Stroke(panel, theme.Stroke, 2, 0.2)
+	UIKit.Corner(panel, 3)
+	UIKit.Stroke(panel, theme.Stroke, 1.5, 0.1)
+	UIKit.Scanlines(panel, 48, 0.9, 1)
+
+	-- paper folder tab
+	local folderTab = UIKit.Frame({
+		Name = "FolderTab",
+		Position = UDim2.fromOffset(14, -30),
+		Size = UDim2.new(0.52, 0, 0, 38),
+		BackgroundColor3 = theme.Paper,
+		Parent = panel,
+	})
+	UIKit.Corner(folderTab, 3)
+	UIKit.new("UISizeConstraint", { MaxSize = Vector2.new(460, 38), Parent = folderTab })
+	UIKit.Label({
+		Name = "Title",
+		Text = string.upper(title),
+		Font = theme.FontType,
+		TextSize = 24,
+		TextColor3 = theme.Ink,
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(14, 4),
+		Size = UDim2.new(1, -28, 1, -8),
+		Parent = folderTab,
+	})
 
 	local header = UIKit.Frame({
 		Name = "Header",
@@ -302,36 +407,38 @@ function UIKit.BuildPanel(parent: Instance, title: string, onClose: () -> ())
 		BackgroundColor3 = theme.Panel,
 		Parent = panel,
 	})
-	UIKit.Corner(header, 18)
+	UIKit.Corner(header, 3)
+	UIKit.Frame({ Name = "Rule", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = theme.Accent, Parent = header })
 	UIKit.Label({
-		Name = "Title",
-		Text = title,
-		Font = theme.FontBlack,
-		TextSize = 26,
+		Name = "Classification",
+		Text = "P.I.A. · CONFIDENTIAL",
+		Font = theme.Font,
+		TextSize = 14,
+		TextColor3 = theme.Accent,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Position = UDim2.fromOffset(20, 0),
-		Size = UDim2.new(0.6, 0, 1, 0),
+		Size = UDim2.new(0.5, 0, 1, 0),
 		Parent = header,
 	})
 	local subtitle = UIKit.Label({
 		Name = "Subtitle",
 		Text = "",
 		Font = theme.Font,
-		TextSize = 18,
+		TextSize = 17,
 		TextColor3 = theme.Gold,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -72, 0, 0),
-		Size = UDim2.new(0.4, -80, 1, 0),
+		Size = UDim2.new(0.5, -80, 1, 0),
 		Parent = header,
 	})
 	UIKit.Button({
 		Name = "Close",
-		Text = "✕",
-		TextSize = 24,
+		Text = "X",
+		TextSize = 22,
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(46, 46),
+		Size = UDim2.fromOffset(46, 42),
 		BackgroundColor3 = theme.Accent,
 		Parent = header,
 	}, onClose)
@@ -343,7 +450,7 @@ function UIKit.BuildPanel(parent: Instance, title: string, onClose: () -> ())
 		BackgroundTransparency = 1,
 		Parent = panel,
 	})
-	UIKit.List(tabs, Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
+	UIKit.List(tabs, Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
 
 	local body = UIKit.Frame({
 		Name = "Body",
@@ -351,6 +458,7 @@ function UIKit.BuildPanel(parent: Instance, title: string, onClose: () -> ())
 		Size = UDim2.new(1, -24, 1, -130),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
+		ZIndex = 2,
 		Parent = panel,
 	})
 	return panel, body, tabs, subtitle
@@ -379,8 +487,8 @@ function UIKit.Scroller(parent: Instance): ScrollingFrame
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		ScrollBarThickness = 6,
-		ScrollBarImageColor3 = UIKit.Theme.Stroke,
+		ScrollBarThickness = 5,
+		ScrollBarImageColor3 = UIKit.Theme.Accent,
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
@@ -388,14 +496,17 @@ function UIKit.Scroller(parent: Instance): ScrollingFrame
 	})
 end
 
+-- Folder tabs: paper when active, dark when not.
 function UIKit.TabButton(parent: Instance, text: string, order: number, onClick: () -> ()): TextButton
 	return UIKit.Button({
 		Name = text,
 		Text = text,
 		TextSize = 16,
 		LayoutOrder = order,
-		Size = UDim2.fromOffset(150, 40),
+		Size = UDim2.fromOffset(146, 38),
 		BackgroundColor3 = UIKit.Theme.Panel2,
+		TextColor3 = UIKit.Theme.SubText,
+		Font = UIKit.Theme.FontType,
 		Parent = parent,
 	}, onClick)
 end
@@ -404,9 +515,25 @@ function UIKit.SetTabActive(tabs: Instance, activeName: string)
 	for _, child in ipairs(tabs:GetChildren()) do
 		if child:IsA("TextButton") then
 			local active = child.Name == activeName
-			child.BackgroundColor3 = if active then UIKit.Theme.Accent else UIKit.Theme.Panel2
+			child.BackgroundColor3 = if active then UIKit.Theme.Paper else UIKit.Theme.Panel2
+			child.TextColor3 = if active then UIKit.Theme.Ink else UIKit.Theme.SubText
 		end
 	end
+end
+
+-- A dark rectangular card with a thin edge (lists, rows, member cards).
+function UIKit.Card(props: { [string]: any }): Frame
+	local defaults = {
+		BackgroundColor3 = UIKit.Theme.Panel2,
+		BorderSizePixel = 0,
+	}
+	for key, value in pairs(props) do
+		defaults[key] = value
+	end
+	local card = UIKit.new("Frame", defaults)
+	UIKit.Corner(card, 3)
+	UIKit.Stroke(card, UIKit.Theme.Stroke, 1, 0.5)
+	return card
 end
 
 return UIKit

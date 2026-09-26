@@ -3,7 +3,7 @@
 	Location: StarterPlayer/StarterPlayerScripts/ClientMain
 
 	Client bootstrap. Initialises every controller, then tells the server the
-	UI is ready so it can send the initial round / data / event state.
+	UI is ready so it can send the initial mission / data / party / event state.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,16 +16,27 @@ local ORDER = {
 	"ClientState",
 	"UIKit",
 	"AudioController",
-	"Sfx",
+	"LightingController",
+	"WorldController",
+	"FirstPersonController",
 	"HUDController",
 	"AnnouncementController",
+	"LoadingController",
 	"FxController",
+	"JumpscareController",
+	"DownedController",
 	"EquipmentController",
+	"ViewmodelController",
 	"PhotoController",
 	"MovementController",
 	"FootstepController",
+	"ObservationController",
+	"AnomalyAnimator",
 	"AlbumController",
 	"ShopController",
+	"SettingsController",
+	"PartyController",
+	"LobbyController",
 	"ResultsController",
 	"DarkRoomController",
 	"ChatTagController",

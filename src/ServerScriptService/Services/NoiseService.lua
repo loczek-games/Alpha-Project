@@ -262,7 +262,7 @@ function NoiseService:_surfaceAt(root: BasePart): string
 end
 
 function NoiseService:_movementTick()
-	local round = self.Services.RoundService
+	local round = self.Services.MissionService
 	if not round or round.State ~= "Round" then
 		return
 	end

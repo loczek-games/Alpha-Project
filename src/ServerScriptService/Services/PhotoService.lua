@@ -106,8 +106,7 @@ function PhotoService:_onRequest(player: Player, cameraCFrame: any)
 		return
 	end
 
-	local round = services.RoundService
-	local inRound = round.State == "Round" and round:IsParticipant(player)
+	local inRound = services.MissionService:IsInvestigating(player)
 	if inRound and not services.EquipmentService:ConsumeBattery(player, "Camera", EquipmentConfig.Items.Camera.Battery.PerUse) then
 		self:_fail(player, "NO_BATTERY")
 		return
@@ -240,11 +239,6 @@ function PhotoService:_buildExclude(root: Instance)
 			table.insert(exclude, character)
 		end
 	end
-	for _, npc in ipairs(self.Services.NPCService:GetAll()) do
-		if npc.Model ~= root and not root:IsDescendantOf(npc.Model) then
-			table.insert(exclude, npc.Model)
-		end
-	end
 	return exclude
 end
 
@@ -282,7 +276,7 @@ function PhotoService:_countGroup(player: Player, origin: Vector3, look: Vector3
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { player.Character :: Model, self.Services.MapService.Folders.ActiveAnomalies }
-	for _, other in ipairs(self.Services.RoundService:GetParticipants()) do
+	for _, other in ipairs(self.Services.MissionService:GetParticipants()) do
 		if other == player then
 			continue
 		end
@@ -346,7 +340,7 @@ function PhotoService:_capture(player: Player, record, info, origin: Vector3, lo
 	if shotIndex == 1 then
 		reward = PhotoMath.ComputeReward(AnomalyConfig.GetReward(def), stars, isNew, groupCount, isFirst)
 		services.EconomyService:AddEvidence(player, reward, "Photo")
-		services.RoundService:RecordCapture(player, {
+		services.MissionService:RecordCapture(player, {
 			Def = def,
 			Stars = stars,
 			Reward = reward,

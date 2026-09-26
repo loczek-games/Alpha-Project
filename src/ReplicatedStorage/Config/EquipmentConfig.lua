@@ -49,7 +49,7 @@ EquipmentConfig.Items = {
 		Sounds = "Flashlight",
 		Battery = { Capacity = 100, DrainPerSecond = 0.4 },
 		Noise = { Toggle = 0.05, Malfunction = 0.15, Broken = 0.3, RapidToggleCount = 3, RapidToggleWindow = 3 },
-		Light = { Brightness = 2.6, Range = 55, Angle = 55, Color = Color3.fromRGB(255, 244, 220) },
+		Light = { Brightness = 2.4, Range = 52, Angle = 50, Color = Color3.fromRGB(255, 240, 214) },
 		Description = "Lights the dark. Dangerous things can make it buzz... or die.",
 	},
 	EMF = {
@@ -111,6 +111,64 @@ EquipmentConfig.Items = {
 }
 
 EquipmentConfig.StarterItems = { "Camera", "Flashlight", "EMF" }
+
+-- FLASHLIGHT BENCH upgrades (Evidence). Stack with the Tactical Flashlight pass.
+EquipmentConfig.FlashlightUpgrades = {
+	Beam = {
+		Name = "Wide Reflector",
+		Order = 1,
+		Icon = "🔆",
+		Description = "Longer, wider, brighter beam per level.",
+		MaxLevel = 3,
+		Prices = { 3000, 9000, 26000 },
+		Range = 8,
+		Angle = 5,
+		Brightness = 0.3,
+	},
+	Battery = {
+		Name = "Lithium Cells",
+		Order = 2,
+		Icon = "🔋",
+		Description = "Less battery drain for the flashlight and UV light.",
+		MaxLevel = 3,
+		Prices = { 3500, 11000, 30000 },
+		DrainMultipliers = { 0.85, 0.7, 0.55 },
+	},
+	Shielding = {
+		Name = "Shielded Wiring",
+		Order = 3,
+		Icon = "🛡️",
+		Description = "Anomalies make your light flicker and fail less often.",
+		MaxLevel = 2,
+		Prices = { 8000, 24000 },
+		InterferenceMultipliers = { 0.7, 0.45 },
+	},
+}
+
+-- Tactical Flashlight game pass
+EquipmentConfig.Tactical = { Range = 15, Angle = 8, Brightness = 0.6, DrainMultiplier = 0.5, InterferenceMultiplier = 0.5 }
+
+-- Light stats after upgrades + pass (itemId = "Flashlight" | "UVLight").
+function EquipmentConfig.GetLightStats(itemId: string, upgrades: { [string]: number }?, tactical: boolean?)
+	local item = EquipmentConfig.Items[itemId]
+	local base = item.Light
+	local levels = upgrades or {}
+	local up = EquipmentConfig.FlashlightUpgrades
+	local beam = levels.Beam or 0
+	local battery = levels.Battery or 0
+	local shielding = levels.Shielding or 0
+	local tacticalBonus = if tactical and itemId == "Flashlight" then EquipmentConfig.Tactical else nil
+	local drain = if battery > 0 then up.Battery.DrainMultipliers[battery] else 1
+	local interference = if shielding > 0 then up.Shielding.InterferenceMultipliers[shielding] else 1
+	return {
+		Range = base.Range + up.Beam.Range * beam + (if tacticalBonus then tacticalBonus.Range else 0),
+		Angle = base.Angle + up.Beam.Angle * beam + (if tacticalBonus then tacticalBonus.Angle else 0),
+		Brightness = base.Brightness + up.Beam.Brightness * beam + (if tacticalBonus then tacticalBonus.Brightness else 0),
+		Color = base.Color,
+		DrainMultiplier = drain * (if tacticalBonus then tacticalBonus.DrainMultiplier else 1),
+		InterferenceMultiplier = interference * (if tacticalBonus then tacticalBonus.InterferenceMultiplier else 1),
+	}
+end
 
 for id, item in pairs(EquipmentConfig.Items) do
 	item.Id = id

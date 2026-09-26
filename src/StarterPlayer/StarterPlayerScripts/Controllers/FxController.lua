@@ -3,7 +3,7 @@
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/FxController
 
 	Client-side visual effects:
-	  * camera flash + freeze-frame when you take a photo
+	  * camera flash + a short "still photo" grade when you take a photo
 	  * other players' camera flashes (you see flashes around the dark mall)
 	  * Smiling Player  - creepy face on another player (never on yourself)
 	  * One Behind You  - "DO NOT TURN AROUND." and it vanishes when you look
@@ -12,7 +12,7 @@
 	  * Sixth Sense whisper
 	  * camera glitch / static (broken autofocus, night-vision interference)
 	  * night vision (green grade + local light + scanlines)
-	  * jumpscares when a sound-hunting anomaly catches you
+	(Jumpscares live in JumpscareController.)
 	Respects the Reduced Flashes and Screen Shake settings.
 ]]
 
@@ -100,7 +100,6 @@ function FxController:Init(controllers)
 
 	self:_buildGlitch()
 	self:_buildNightVision()
-	self:_buildJumpscare()
 
 	Net.Event("AnomalyFx").OnClientEvent:Connect(function(payload)
 		if type(payload) ~= "table" then
@@ -113,10 +112,10 @@ function FxController:Init(controllers)
 		elseif payload.Type == "PhotographedBack" then
 			self:_photographedBack(payload)
 		elseif payload.Type == "SenseHint" then
-			self.Controllers.Sfx.Play("Whisper")
+			self.Controllers.AudioController:Play("UI.Whisper", nil)
 			self.Controllers.AnnouncementController:Toast("👂 You sense something nearby...", Color3.fromRGB(190, 140, 255), 2.5)
 		elseif payload.Type == "Jumpscare" then
-			self:Jumpscare(payload.Kind)
+			self.Controllers.JumpscareController:Play(payload)
 		elseif payload.Type == "FlashedBy" then
 			self:_flashedBy()
 		end
@@ -165,28 +164,20 @@ function FxController:Flash(strength: number?)
 	UIKit.Tween(self.FlashFrame, if reduced then 0.25 else 0.35, { BackgroundTransparency = 1 })
 end
 
--- Briefly freezes the view + desaturates it so every shot feels like a still photo.
+-- A split-second desaturated "exposure" so every shot feels like a still
+-- photo - without freezing the camera (you can keep moving).
 function FxController:FreezeFrame(duration: number?)
-	local camera = Workspace.CurrentCamera
-	if not camera then
-		return
-	end
-	local hold = duration or 0.16
+	local hold = duration or 0.12
 	self.PhotoGrade.Enabled = true
 	self.PhotoGrade.Saturation = -0.7
 	self.PhotoGrade.Contrast = 0.25
-	if camera.CameraType == Enum.CameraType.Custom and not self.Frozen then
-		self.Frozen = true
-		camera.CameraType = Enum.CameraType.Scriptable
-		task.delay(hold, function()
-			if camera.CameraType == Enum.CameraType.Scriptable then
-				camera.CameraType = Enum.CameraType.Custom
-			end
-			self.Frozen = false
-		end)
-	end
-	task.delay(hold + 0.1, function()
-		self.PhotoGrade.Enabled = false
+	self.PhotoGrade.Brightness = 0.12
+	local token = os.clock()
+	self.PhotoToken = token
+	task.delay(hold, function()
+		if self.PhotoToken == token then
+			self.PhotoGrade.Enabled = false
+		end
 	end)
 end
 
@@ -387,96 +378,8 @@ function FxController:SetNightVision(on: boolean)
 end
 
 ---------------------------------------------------------------------------
--- Jumpscares (sound-hunting anomalies) & the Photographer's flash
+-- The Photographer's flash
 ---------------------------------------------------------------------------
-
-function FxController:_buildJumpscare()
-	local UIKit = self.Controllers.UIKit
-	local frame = UIKit.Frame({
-		Name = "Jumpscare",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.new(0, 0, 0),
-		Visible = false,
-		ZIndex = 30,
-		Parent = self.Overlay,
-	})
-	-- an eyeless, pale face with a huge dark mouth (drawn with frames: no images to upload)
-	local face = UIKit.Frame({
-		Name = "Face",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.52),
-		Size = UDim2.fromScale(0.62, 1.05),
-		BackgroundColor3 = Color3.fromRGB(196, 190, 176),
-		ZIndex = 31,
-		Parent = frame,
-	})
-	UIKit.Corner(face, UDim.new(0.45, 0))
-	for _, x in ipairs({ 0.3, 0.7 }) do
-		local socket = UIKit.Frame({
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(x, 0.3),
-			Size = UDim2.fromScale(0.2, 0.05),
-			BackgroundColor3 = Color3.fromRGB(120, 112, 100),
-			ZIndex = 32,
-			Parent = face,
-		})
-		UIKit.Corner(socket, UDim.new(1, 0))
-	end
-	local mouth = UIKit.Frame({
-		Name = "Mouth",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.62),
-		Size = UDim2.fromScale(0.62, 0.42),
-		BackgroundColor3 = Color3.fromRGB(10, 0, 0),
-		ZIndex = 32,
-		Parent = face,
-	})
-	UIKit.Corner(mouth, UDim.new(0.5, 0))
-	for i = 1, 7 do
-		UIKit.Frame({
-			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.fromScale(i / 8, 0),
-			Size = UDim2.fromScale(0.06, 0.16),
-			BackgroundColor3 = Color3.fromRGB(230, 225, 205),
-			ZIndex = 33,
-			Parent = mouth,
-		})
-	end
-	self.ScareFrame = frame
-	self.ScareFace = face
-	self.ScareScale = UIKit.new("UIScale", { Parent = face })
-end
-
-function FxController:Jumpscare(kind: string?)
-	local UIKit = self.Controllers.UIKit
-	local state = self.Controllers.ClientState
-	local reduced = state:GetSetting("ReducedFlashes") == true
-	local shake = state:GetSetting("ScreenShake") == true
-	local audio = self.Controllers.AudioController
-	audio:Play(if kind == "Listener" then "Anomaly.ListenerAttack" else "Anomaly.Jumpscare", nil)
-	self:Static(0.9, 0.5)
-
-	local frame = self.ScareFrame
-	frame.Visible = true
-	frame.BackgroundTransparency = if reduced then 0.35 else 0
-	self.ScareFace.Visible = not reduced -- reduced: just a dark hit + sound
-	self.ScareScale.Scale = 0.6
-	UIKit.Tween(self.ScareScale, 0.18, { Scale = 1.15 }, Enum.EasingStyle.Back)
-	task.spawn(function()
-		for _ = 1, 12 do
-			if shake then
-				self.ScareFace.Position = UDim2.new(0.5, math.random(-18, 18), 0.52, math.random(-12, 12))
-			end
-			task.wait(0.04)
-		end
-		self.ScareFace.Position = UDim2.fromScale(0.5, 0.52)
-		UIKit.Tween(frame, 0.5, { BackgroundTransparency = 1 })
-		self.ScareFace.Visible = false
-		task.wait(0.5)
-		frame.Visible = false
-	end)
-	self.Controllers.AnnouncementController:Toast("😱 IT HEARD YOU. (battery drained)", Color3.fromRGB(255, 90, 90), 3)
-end
 
 -- The Photographer flashes back at whoever is aiming a camera at it.
 function FxController:_flashedBy()
@@ -631,7 +534,7 @@ function FxController:_setDoNotTurn(payload)
 
 	local model = payload.Model
 	self.DoNotTurnModel = model
-	self.Controllers.Sfx.Play("Heartbeat")
+	self.Controllers.AudioController:Play("UI.Heartbeat", nil)
 	self.DoNotTurnLabel.TextTransparency = 0
 	self.DoNotTurnLabel.TextStrokeTransparency = 0.2
 	self.DoNotTurnLabel.TextSize = 70
@@ -682,7 +585,7 @@ function FxController:_setDoNotTurn(payload)
 			end
 			beat += 1
 			if beat % 12 == 0 then
-				self.Controllers.Sfx.Play("Heartbeat")
+				self.Controllers.AudioController:Play("UI.Heartbeat", nil)
 			end
 			task.wait(0.1)
 		end
@@ -696,7 +599,7 @@ end
 function FxController:_photographedBack(payload)
 	local UIKit = self.Controllers.UIKit
 	local reduced = self.Controllers.ClientState:GetSetting("ReducedFlashes") == true
-	self.Controllers.Sfx.Play("Shutter", 0.7)
+	self.Controllers.AudioController:Play("Camera.Shutter", nil, { Speed = 0.7 })
 	if not reduced then
 		self.FlashFrame.BackgroundTransparency = 0
 		UIKit.Tween(self.FlashFrame, 0.2, { BackgroundTransparency = 1 })
