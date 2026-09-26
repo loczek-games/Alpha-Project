@@ -162,11 +162,12 @@ function LoadingController:_finishJoin()
 			end
 		end },
 		{ "CHECKING EQUIPMENT...", function()
-			local viewmodel = self.Controllers.ViewmodelController
-			if viewmodel and viewmodel.Preload then
-				viewmodel:Preload()
+			local list: { Instance } = { player:WaitForChild("PlayerGui") }
+			local backpack = player:FindFirstChildOfClass("Backpack")
+			if backpack then
+				table.insert(list, backpack)
 			end
-			ContentProvider:PreloadAsync({ player:WaitForChild("PlayerGui") })
+			ContentProvider:PreloadAsync(list)
 		end },
 	}
 	for index, step in ipairs(steps) do

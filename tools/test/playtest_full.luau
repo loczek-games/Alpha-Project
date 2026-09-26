@@ -38,6 +38,29 @@ local StarterPlayerScripts = dm:GetService("StarterPlayer"):FindFirstChild("Star
 local Services = ServerScriptService:FindFirstChild("Services")
 
 local character = nil
+local player = nil
+
+-- the Roblox hotbar (what the engine's Backpack does on a key / slot click)
+local function hotbar(itemId: string)
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local tool = backpack and backpack:FindFirstChild(itemId)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if tool then
+		humanoid:EquipTool(tool)
+	else
+		humanoid:UnequipTools()
+	end
+end
+
+-- click / tap with the item in hand
+local function activate()
+	for _, child in character:GetChildren() do
+		if child:IsA("Tool") then
+			engine.signalFor(child, "Tool.Activated"):Fire()
+		end
+	end
+end
+
 local function frames(count: number)
 	for _ = 1, count do
 		local head = character and character:FindFirstChild("Head")
@@ -67,7 +90,7 @@ check(ready, "server printed 'Server ready'")
 ---------------------------------------------------------------------------
 print("\n== join ==")
 ---------------------------------------------------------------------------
-local player = session:join("Tester", 1001)
+player = session:join("Tester", 1001)
 engine.localPlayer = player
 local client = session:context("client", player)
 client.runScript(dm:GetService("ReplicatedFirst"):FindFirstChild("Loading"))
@@ -82,7 +105,6 @@ check(playerGui:FindFirstChild("COC_Loading") == nil, "loading screen removed")
 local Controllers = StarterPlayerScripts:FindFirstChild("Controllers")
 local ClientState = client.require(Controllers.ClientState)
 local Equipment = client.require(Controllers.EquipmentController)
-local Viewmodel = client.require(Controllers.ViewmodelController)
 check(ClientState.Data ~= nil, "client received the save data")
 local backpack = player:FindFirstChildOfClass("Backpack")
 local names = {}
@@ -91,7 +113,7 @@ for _, tool in backpack:GetChildren() do
 end
 table.sort(names)
 check(#names >= 3, "tools in the backpack: " .. table.concat(names, ", "))
-check(#Equipment.Slots >= 3, "hotbar slots: " .. #Equipment.Slots)
+check(engine.coreGui["Enum.CoreGuiType.Backpack"] ~= false, "the Roblox hotbar is shown")
 
 ---------------------------------------------------------------------------
 print("\n== /round start ==")
@@ -141,18 +163,13 @@ for _, child in character:GetChildren() do
 end
 check(held == "Camera", "camera in hand after deploying (" .. tostring(held) .. ")")
 check(Equipment.Equipped == "Camera", "client Equipped = " .. tostring(Equipment.Equipped))
-local model = Viewmodel.Model
-local handle = Viewmodel.ItemModel and Viewmodel.ItemModel:FindFirstChild("Handle")
-local localPos = handle and session.Camera.CFrame:PointToObjectSpace(handle.CFrame.Position)
-check(model ~= nil and engine.unwrap(model.Parent) == session.Camera and localPos ~= nil and localPos.Z < -0.5 and localPos.Z > -3, "camera viewmodel in front of the camera" .. (if localPos then string.format(" (%.2f, %.2f, %.2f)", localPos.X, localPos.Y, localPos.Z) else ""))
 
 ---------------------------------------------------------------------------
 print("\n== photo ==")
 ---------------------------------------------------------------------------
 local input = client.Services.UserInputService
 local before = #engine.remoteLog
-Equipment.EquipLockUntil = 0
-input:Press(Enum.KeyCode.Unknown, Enum.UserInputType.MouseButton1)
+activate()
 frames(20)
 local sent, answered = false, false
 for index = before + 1, #engine.remoteLog do
@@ -163,35 +180,28 @@ for index = before + 1, #engine.remoteLog do
 		answered = true
 	end
 end
-check(sent, "left click sent a PhotoRequest")
+check(sent, "click with the camera sent a PhotoRequest")
 check(answered, "server answered with a PhotoResult")
 
 ---------------------------------------------------------------------------
 print("\n== switching ==")
 ---------------------------------------------------------------------------
-input:Press(Enum.KeyCode.Two)
+hotbar("Flashlight")
 frames(20)
-check(Equipment.Equipped == "Flashlight", "key 2 -> Flashlight (" .. tostring(Equipment.Equipped) .. ")")
-input:Press(Enum.KeyCode.One)
+check(Equipment.Equipped == "Flashlight", "hotbar -> Flashlight (" .. tostring(Equipment.Equipped) .. ")")
+activate()
+frames(10)
+local EquipmentService = server.require(Services.EquipmentService)
+check(EquipmentService:IsOn(engine.wrap(player), "Flashlight"), "click switches the flashlight on")
+hotbar("Camera")
 frames(20)
-check(Equipment.Equipped == "Camera", "key 1 -> Camera (" .. tostring(Equipment.Equipped) .. ")")
--- first person on PC: the cursor is locked, so the camera must come back
--- without clicking the hotbar
-input:Press(Enum.KeyCode.Two)
+check(Equipment.Equipped == "Camera", "hotbar -> Camera (" .. tostring(Equipment.Equipped) .. ")")
+check(not EquipmentService:IsOn(engine.wrap(player), "Flashlight"), "flashlight off when put away")
+hotbar("EMF")
 frames(20)
 input:Press(Enum.KeyCode.Q)
 frames(20)
-check(Equipment.Equipped == "Camera", "holding the flashlight, Q takes the camera out (" .. tostring(Equipment.Equipped) .. ")")
-input.InputChanged:Fire({ UserInputType = Enum.UserInputType.MouseWheel, KeyCode = Enum.KeyCode.Unknown, Position = roblox.Vector3.new(0, 0, -1) }, false)
-frames(20)
-check(Equipment.Equipped == "Flashlight", "mouse wheel down -> next item (" .. tostring(Equipment.Equipped) .. ")")
-task.wait(0.2)
-input.InputChanged:Fire({ UserInputType = Enum.UserInputType.MouseWheel, KeyCode = Enum.KeyCode.Unknown, Position = roblox.Vector3.new(0, 0, 1) }, false)
-frames(20)
-check(Equipment.Equipped == "Camera", "mouse wheel up -> camera again (" .. tostring(Equipment.Equipped) .. ")")
-handle = Viewmodel.ItemModel and Viewmodel.ItemModel:FindFirstChild("Handle")
-localPos = handle and session.Camera.CFrame:PointToObjectSpace(handle.CFrame.Position)
-check(localPos ~= nil and localPos.Z < -0.5, "camera viewmodel back in front of the camera")
+check(Equipment.Equipped == "Camera", "holding the EMF, Q takes the camera out (" .. tostring(Equipment.Equipped) .. ")")
 
 ---------------------------------------------------------------------------
 print("\n== end of mission ==")

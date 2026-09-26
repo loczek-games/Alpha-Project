@@ -1,11 +1,11 @@
 --[[
-	Headless play test: equipment on a mission.
+	Headless play test: equipment as normal Roblox Tools.
 
 	Runs the real server (CharacterService + EquipmentService) and the real
-	client (ClientState, UIKit, EquipmentController, ViewmodelController,
-	FirstPersonController) against the built place, then plays:
-	  join -> tools built -> deploy (first person, camera in hand)
-	  -> 2 (flashlight) -> toggle it -> 1 (camera back) -> back to HQ -> 1 / 1
+	client (ClientState, UIKit, FirstPersonController, EquipmentController)
+	against the built place. The Roblox hotbar is emulated the way the
+	engine's Backpack does it (Humanoid:EquipTool / UnequipTools) and a
+	click / tap is Tool.Activated.
 
 	Usage:  rojo build default.project.json --output build/CaughtOnCamera.rbxl
 	        lune run tools/test/playtest_equipment.luau [--verbose]
@@ -13,6 +13,7 @@
 
 local process = require("@lune/process")
 local roblox = require("@lune/roblox")
+local task = require("@lune/task")
 
 local place = require("./place")
 
@@ -33,8 +34,7 @@ local engine = session.Engine
 local dm = session.DataModel
 local ReplicatedStorage = dm:GetService("ReplicatedStorage")
 local ServerScriptService = dm:GetService("ServerScriptService")
-local StarterPlayerScripts = dm:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
-local Controllers = StarterPlayerScripts:FindFirstChild("Controllers")
+local Controllers = dm:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts"):FindFirstChild("Controllers")
 
 ---------------------------------------------------------------------------
 -- server
@@ -47,7 +47,7 @@ local player = engine.wrap(rawPlayer) -- what game code sees
 server.require(ReplicatedStorage.Modules.Net).Setup()
 
 local data = {
-	OwnedEquipment = { Camera = true, Flashlight = true, EMF = true },
+	OwnedEquipment = { Camera = true, Flashlight = true, EMF = true, NightVision = true },
 	Cosmetics = { Owned = {}, Equipped = { Camera = "CameraField", Flashlight = "FlashlightField", EMF = "EMFField" }, Decor = "Classic" },
 	FlashlightUpgrades = {},
 	EquippedCamera = "Starter",
@@ -97,7 +97,6 @@ services.AnomalyService = {
 services.MapService = engine.stub("MapService")
 services.EquipmentService = server.require(ServerScriptService.Services.EquipmentService)
 services.CharacterService = server.require(ServerScriptService.Services.CharacterService)
-
 for _, name in { "CharacterService", "EquipmentService" } do
 	local ok, err = pcall(services[name].Init, services[name], services)
 	check(ok, name .. ":Init" .. (if ok then "" else ": " .. tostring(err)))
@@ -109,10 +108,15 @@ end
 
 local client = session:context("client", rawPlayer)
 local controllers = {}
-local stubs = { "AudioController", "AnnouncementController", "FxController", "LightingController" }
-for _, name in stubs do
+for _, name in { "AudioController", "AnnouncementController", "FxController", "LightingController" } do
 	controllers[name] = engine.stub(name)
 end
+local shots = 0
+controllers.PhotoController = {
+	Shoot = function()
+		shots += 1
+	end,
+}
 local playerGui = player:FindFirstChildOfClass("PlayerGui")
 local hudGui = engine.newInstance("ScreenGui")
 hudGui.Name = "HUD"
@@ -121,29 +125,21 @@ local hudRoot = engine.newInstance("Frame")
 hudRoot.Name = "Root"
 hudRoot.Parent = hudGui
 controllers.HUDController = { Gui = hudGui, Root = hudRoot }
-for _, name in { "ClientState", "UIKit", "FirstPersonController", "EquipmentController", "ViewmodelController" } do
+local names = { "ClientState", "UIKit", "FirstPersonController", "EquipmentController" }
+for _, name in names do
 	controllers[name] = client.require(Controllers:FindFirstChild(name))
 end
-for _, name in { "ClientState", "UIKit", "FirstPersonController", "EquipmentController", "ViewmodelController" } do
-	local controller = controllers[name]
-	if controller.Init then
-		local ok, err = pcall(controller.Init, controller, controllers)
-		check(ok, name .. ":Init" .. (if ok then "" else ": " .. tostring(err)))
-	end
-end
-for _, name in { "ClientState", "UIKit", "FirstPersonController", "EquipmentController", "ViewmodelController" } do
-	local controller = controllers[name]
-	if controller.Start then
-		local ok, err = pcall(controller.Start, controller)
-		check(ok, name .. ":Start" .. (if ok then "" else ": " .. tostring(err)))
+for _, phase in { "Init", "Start" } do
+	for _, name in names do
+		local controller = controllers[name]
+		if controller[phase] then
+			local ok, err = pcall(controller[phase], controller, if phase == "Init" then controllers else nil)
+			check(ok, name .. ":" .. phase .. (if ok then "" else ": " .. tostring(err)))
+		end
 	end
 end
 local ClientState = controllers.ClientState
 local Equipment = controllers.EquipmentController
-local Viewmodel = controllers.ViewmodelController
-local input = client.Services.UserInputService
-
--- what the server would send on join
 ClientState.Data = data
 ClientState.DataChanged:Fire(data)
 local roundRemote = ReplicatedStorage.Remotes:FindFirstChild("RoundUpdate")
@@ -155,67 +151,79 @@ roundRemote:FireClient(rawPlayer, { State = "Lobby", Participant = false })
 
 local function frames(count: number)
 	for _ = 1, count do
-		-- the camera follows the head (what the default camera script does)
 		local head = character:FindFirstChild("Head")
-		if head and player:GetAttribute("InMission") then
+		if head and rawPlayer:GetAttribute("InMission") then
 			session.Camera.CFrame = head.CFrame
 		end
 		session:frame(1 / 30)
+		task.wait(1 / 60) -- real time passes too (equip delay, cooldowns)
 	end
 end
 
-local function held(): string?
+local function held(): any
 	for _, child in character:GetChildren() do
 		if child:IsA("Tool") then
-			return child.Name
+			return child
 		end
 	end
 	return nil
 end
-
-local function backpackNames(): string
-	local names = {}
-	for _, tool in player:FindFirstChildOfClass("Backpack"):GetChildren() do
-		table.insert(names, tool.Name)
-	end
-	table.sort(names)
-	return table.concat(names, ",")
+local function heldName(): string?
+	local tool = held()
+	return tool and tool.Name
 end
 
-local function viewmodelReport(): (boolean, string)
-	local model = Viewmodel.Model
-	if not model then
-		return false, "no viewmodel"
+-- the Roblox hotbar: key / click on a slot
+local function hotbar(itemId: string)
+	local tool = rawPlayer:FindFirstChildOfClass("Backpack"):FindFirstChild(itemId)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if tool then
+		humanoid:EquipTool(tool)
+	else
+		humanoid:UnequipTools() -- the held item's slot again puts it away
 	end
-	if engine.unwrap(model.Parent) ~= session.Camera then
-		return false, "viewmodel not under the camera (parent " .. tostring(model.Parent) .. ")"
+	frames(25)
+end
+
+-- click / tap with the item in hand
+local function activate()
+	local tool = held()
+	if tool then
+		engine.signalFor(tool, "Tool.Activated"):Fire()
 	end
-	local item = Viewmodel.ItemModel
-	local handle = item and item:FindFirstChild("Handle")
-	if not handle then
-		return false, "viewmodel has no Handle"
+	frames(10)
+end
+
+local function backpackNames(): string
+	local list = {}
+	for _, tool in rawPlayer:FindFirstChildOfClass("Backpack"):GetChildren() do
+		table.insert(list, tool.Name)
 	end
-	local localPos = session.Camera.CFrame:PointToObjectSpace(handle.CFrame.Position)
-	local inFront = localPos.Z < -0.5 and localPos.Z > -3 and math.abs(localPos.X) < 1.5 and math.abs(localPos.Y) < 1.5
-	local visibleParts = 0
-	for _, d in item:GetDescendants() do
-		if d:IsA("BasePart") and d.Transparency < 1 then
-			visibleParts += 1
-		end
-	end
-	return inFront and visibleParts > 3, string.format("%s at camera-space (%.2f, %.2f, %.2f), %d visible parts", Viewmodel.Item or "?", localPos.X, localPos.Y, localPos.Z, visibleParts)
+	table.sort(list)
+	return table.concat(list, ",")
 end
 
 ---------------------------------------------------------------------------
 -- scenario
 ---------------------------------------------------------------------------
 
-print("\n== join ==")
+print("\n== join (HQ) ==")
 services.CharacterService:_setupCharacter(player, engine.wrap(character))
 frames(10)
-check(backpackNames() == "Camera,EMF,Flashlight", "backpack has Camera, EMF, Flashlight (" .. backpackNames() .. ")")
-check(held() == nil, "nothing in hand at HQ")
-check(#Equipment.Slots == 3, "hotbar shows 3 slots (" .. #Equipment.Slots .. ")")
+check(backpackNames() == "Camera,EMF,Flashlight,NightVision", "backpack: " .. backpackNames())
+check(engine.coreGui["Enum.CoreGuiType.Backpack"] ~= false, "the Roblox hotbar is shown")
+check(heldName() == nil, "nothing in hand at HQ")
+local nv = rawPlayer:FindFirstChildOfClass("Backpack"):FindFirstChild("NightVision")
+check(nv ~= nil and nv.RequiresHandle == false, "Night Vision is a handleless tool")
+for _, tool in rawPlayer:FindFirstChildOfClass("Backpack"):GetChildren() do
+	check(tool.ManualActivationOnly == false, tool.Name .. ": click / tap activates it")
+end
+hotbar("Camera")
+check(heldName() == "Camera" and Equipment.Equipped == "Camera", "hotbar -> camera in hand")
+activate()
+check(shots == 1, "click with the camera takes a photo (" .. shots .. ")")
+hotbar("Camera")
+check(heldName() == nil, "same slot again puts it away")
 
 print("\n== deploy ==")
 investigating = true
@@ -224,53 +232,44 @@ services.CharacterService:SetMissionMode(player, true)
 frames(20)
 roundRemote:FireClient(rawPlayer, { State = "Round", Participant = true })
 frames(20)
-check(player:GetAttribute("InMission") == true, "InMission attribute set")
-check(held() == "Camera", "server put the camera in hand (" .. tostring(held()) .. ")")
-check(Equipment.Equipped == "Camera", "client knows the camera is held (" .. tostring(Equipment.Equipped) .. ")")
-local ok, report = viewmodelReport()
-check(ok, "camera viewmodel visible in front of the camera: " .. report)
+check(heldName() == "Camera", "camera in hand after deploying (" .. tostring(heldName()) .. ")")
+check(Equipment.Equipped == "Camera", "client knows the camera is held")
+check(Equipment.BatteryLabel.Visible and string.find(Equipment.BatteryLabel.Text, "CAMERA", 1, true) ~= nil, "battery shown: " .. Equipment.BatteryLabel.Text)
+activate()
+check(shots == 2, "click in first person takes a photo")
 
-print("\n== key 2: flashlight ==")
-input:Press(Enum.KeyCode.Two)
-frames(20)
-check(held() == "Flashlight", "flashlight in hand (" .. tostring(held()) .. ")")
-check(Equipment.Equipped == "Flashlight", "client Equipped = Flashlight (" .. tostring(Equipment.Equipped) .. ")")
-ok, report = viewmodelReport()
-check(ok, "flashlight viewmodel visible: " .. report)
-Equipment.EquipLockUntil = 0
-services.EquipmentService:_state(player).EquippedAt = 0
-Equipment:UseEquipped()
-frames(10)
-check(services.EquipmentService:IsOn(player, "Flashlight"), "flashlight switched on")
-check(Viewmodel.Beam ~= nil and Viewmodel.Beam.Enabled, "first-person beam follows the camera and is on")
+print("\n== flashlight ==")
+hotbar("Flashlight")
+check(heldName() == "Flashlight", "hotbar -> flashlight")
+activate()
+check(services.EquipmentService:IsOn(rawPlayer, "Flashlight") or services.EquipmentService:IsOn(player, "Flashlight"), "click switches it on")
+frames(5)
+local beamPart = session.Camera:FindFirstChild("COC_HeldBeam")
+local light = beamPart and beamPart:FindFirstChildOfClass("SpotLight")
+check(light ~= nil and light.Enabled, "first-person beam follows the camera and is on")
+activate()
+check(not (services.EquipmentService:IsOn(player, "Flashlight")), "click again switches it off")
 
-print("\n== key 1: camera again ==")
-input:Press(Enum.KeyCode.One)
-frames(20)
-check(held() == "Camera", "camera back in hand (" .. tostring(held()) .. ")")
-check(Equipment.Equipped == "Camera", "client Equipped = Camera (" .. tostring(Equipment.Equipped) .. ")")
-ok, report = viewmodelReport()
-check(ok, "camera viewmodel visible again: " .. report)
-check(not services.EquipmentService:IsOn(player, "Flashlight"), "flashlight switched off when put away")
+print("\n== night vision ==")
+hotbar("NightVision")
+activate()
+check(services.EquipmentService:IsOn(player, "NightVision"), "night vision on")
+hotbar("Camera")
+check(services.EquipmentService:IsOn(player, "NightVision"), "goggles stay on with the camera in hand")
+check(heldName() == "Camera", "camera back in hand")
 
 print("\n== back to HQ ==")
 investigating = false
 services.CharacterService:SetMissionMode(player, false)
 roundRemote:FireClient(rawPlayer, { State = "Lobby", Participant = false })
 frames(20)
-check(held() == nil, "hands empty at HQ")
-check(Viewmodel.Model == nil, "no first-person viewmodel at HQ")
-input:Press(Enum.KeyCode.One)
-frames(10)
-check(held() == "Camera", "key 1 at HQ takes the camera out (" .. tostring(held()) .. ")")
-input:Press(Enum.KeyCode.One)
-frames(10)
-check(held() == nil, "key 1 again puts it away (" .. tostring(held()) .. ")")
+check(heldName() == nil, "hands empty at HQ")
+check(session.Camera:FindFirstChild("COC_HeldBeam") == nil, "no local beam at HQ")
 
 ---------------------------------------------------------------------------
 
 if #engine.errors > 0 then
-	print("\n== script errors during the test ==")
+	print("\n== script errors ==")
 	for _, message in engine.errors do
 		print("  " .. message)
 	end

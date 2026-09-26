@@ -162,7 +162,7 @@ but 0.35 per step.
 ## 4. Equipment sounds
 
 Hand items are real Roblox **Tools**, so other players see you holding them
-and hear them in 3D. Switching items (keys 1-6 / hotbar) plays *unequip →
+and hear them in 3D. Switching items (the Roblox hotbar) plays *unequip →
 handling → equip* and locks the new item for 0.3 s.
 
 ### Camera 📷

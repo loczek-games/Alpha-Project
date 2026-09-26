@@ -2,10 +2,8 @@
 	EquipmentModels (ModuleScript)
 	Location: ReplicatedStorage/Modules/EquipmentModels
 
-	THE builder for every piece of hand equipment, used by
-	  * EquipmentService      the Tools other players see in your hands
-	  * ViewmodelController   your own first-person viewmodel
-	so both always match. Built from parts (no uploads needed).
+	THE builder for every piece of hand equipment: EquipmentService puts
+	these parts into the players' Tools. Built from parts (no uploads needed).
 
 	  EquipmentModels.Build(itemId, skin) -> Model (PrimaryPart "Handle")
 	Orientation: device front (lens / beam) = -Z, up = +Y, the Handle part

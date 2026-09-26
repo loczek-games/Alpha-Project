@@ -219,6 +219,8 @@ SoundConfig.UV = {
 -- NIGHT VISION ("BEEP - WHIRR")
 ---------------------------------------------------------------------------
 SoundConfig.NightVision = {
+	Equip = S({ Volume = 0.4, Fallback = { B.Unsheath, 1.9 }, RollOff = { 3, 25 } }),
+	Unequip = S({ Volume = 0.35, Fallback = { B.Unsheath, 1.5 }, RollOff = { 3, 25 } }),
 	PowerOn = S({ Volume = 0.55, Pitch = { 1, 1 }, Fallback = { B.Ping, 1.35 }, RollOff = { 3, 30 } }),
 	PowerOff = S({ Volume = 0.45, Pitch = { 1, 1 }, Fallback = { B.Ping, 0.7 }, RollOff = { 3, 30 } }),
 	Activation = S({ Volume = 0.35, Pitch = { 1, 1 }, Fallback = { B.Swoosh, 0.5 }, RollOff = { 3, 25 } }),
@@ -467,8 +469,9 @@ SoundConfig.Ambience = {
 }
 
 SoundConfig.Music = {
-	Lobby = S({ Volume = 0.5, Group = "Music", Spatial = false, Looped = true, Loop = "MusicLobby" }),
-	Tension = S({ Volume = 0.5, Group = "Music", Spatial = false, Looped = true, Loop = "MusicTension" }),
+	-- until the Loops bank is uploaded: a slowed-down wind drone
+	Lobby = S({ Volume = 0.5, Group = "Music", Spatial = false, Looped = true, Loop = "MusicLobby", Fallback = { B.Wind, 0.35 } }),
+	Tension = S({ Volume = 0.5, Group = "Music", Spatial = false, Looped = true, Loop = "MusicTension", Fallback = { B.Wind, 0.22 } }),
 }
 
 ---------------------------------------------------------------------------

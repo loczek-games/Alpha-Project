@@ -445,15 +445,26 @@ end
 if missingCount == 0 then
 	ok(string.format("%d sound references resolve (%d paths in SoundConfig)", checked, #SoundConfig.AllPaths()))
 end
+-- until the banks are uploaded every sound plays its built-in fallback
 local fallbackless = {}
 for _, path in SoundConfig.AllPaths() do
 	local def = SoundConfig.Get(path)
-	if def and def.Loop and not def.Fallback and not def.Ids then
+	if def and not def.Fallback and not (def.Ids and #def.Ids > 0) then
 		table.insert(fallbackless, path)
 	end
 end
 if #fallbackless > 0 then
-	warn("loops without a built-in fallback: " .. table.concat(fallbackless, ", "))
+	fail("sounds with no built-in fallback (silent until the banks are uploaded): " .. table.concat(fallbackless, ", "))
+else
+	ok("every sound has a built-in fallback")
+end
+-- every equipment item has its equip / unequip sounds
+for id, item in EquipmentConfig.Items do
+	for _, suffix in { "Equip", "Unequip" } do
+		if not SoundConfig.Get(item.Sounds .. "." .. suffix) then
+			fail(string.format("equipment %s has no %s.%s sound", id, item.Sounds, suffix))
+		end
+	end
 end
 
 ---------------------------------------------------------------------------

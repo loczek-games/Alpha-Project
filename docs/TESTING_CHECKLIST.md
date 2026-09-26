@@ -12,7 +12,7 @@ Tick every box before publishing.
 - [ ] Tablet emulator: PHOTO button still left of (and not overlapping) the larger jump button.
 - [ ] Tapping PHOTO plays button click → shutter + flash → flash recharge whine, white flash and a short freeze-frame; tapping the 3D world does **not** take a photo.
 - [ ] The 🏃 RUN toggle sits above-left of PHOTO; the 🔍 zoom button appears only while the camera is held.
-- [ ] The equipment hotbar (bottom centre) is tappable; each slot shows a battery bar and an "on" dot. With the flashlight held, the big button shows 🔦 LIGHT and toggles it.
+- [ ] Equipment sits in the normal Roblox hotbar (bottom centre); tapping a slot takes the item out, tapping the screen uses it. The held item and its battery are shown above the hotbar. With the flashlight held, the big button (touch) shows 🔦 LIGHT and toggles it.
 - [ ] Holding the thumbstick and tapping PHOTO at the same time works (moving while shooting).
 - [ ] The HUD covers only the edges: timer (top centre), Evidence (top right), Album/Camera (left), PHOTO (bottom right). The centre of the screen stays clear.
 - [ ] Album and Camera Bag panels fit on a phone screen, scroll, and close with ✕.
@@ -22,7 +22,7 @@ Tick every box before publishing.
 ## 2. PC controls
 - [ ] Left Mouse Button takes a photo; **E** takes a photo; the on-screen button also works and shows "CLICK / E".
 - [ ] Standing at a door/locker (prompt visible): **E** uses the prompt and does NOT take a photo.
-- [ ] Keys **1-6** switch items (unequip + handling + equip sounds, ~0.3 s before the item can be used); **Q** zooms (FOV 70 ↔ 38, zoom motor sound).
+- [ ] Keys **1-9** / clicking a hotbar slot switch items (unequip + equip sounds, ~0.3 s before the item can be used); **left click** uses the held item (camera = photo); **Q** zooms (FOV 70 ↔ 38, zoom motor sound) or takes the camera out.
 - [ ] Hold **Left Shift** = run (loud), hold **Left Ctrl / C** = sneak (slow, very quiet). Gamepad: L3 toggles run, L2 zooms.
 - [ ] Clicking on UI (Album, Shop, tabs) does NOT also take a photo.
 - [ ] Right-mouse camera rotation and zoom still work (max zoom is limited to 20 studs).
@@ -119,7 +119,7 @@ Use an exploit-style test from the Studio command bar on the **client** (Test �
 
 ## 12. Equipment & batteries
 `/round start`, then `/equipment` (Studio: unlocks everything) and `/battery` (refill).
-- [ ] New players own Camera, Flashlight and EMF; Thermal (15,000), UV Light (12,000) and Night Vision (20,000) are bought in Camera Bag → EQUIPMENT and appear in the hotbar immediately.
+- [ ] New players own Camera, Flashlight and EMF; Thermal (15,000), UV Light (12,000) and Night Vision (20,000) are bought in Camera Bag → EQUIPMENT and appear in the Roblox hotbar immediately.
 - [ ] Items are real Tools: other players see you holding the camera / flashlight / EMF / thermal / UV light; Night Vision goggles appear on your head.
 - [ ] Batteries drain while items are on (flashlight, UV, NV, thermal, EMF) and per photo (camera). Low battery (20%) plays a warning + toast; empty plays a power-down.
 - [ ] Batteries spawn around the mall (glowing, "Take Battery" prompt) and inside some lockers/drawers; picking one up charges your emptiest item.

@@ -2,23 +2,25 @@
 	EquipmentController (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/EquipmentController
 
-	Hotbar + equipment feel on the client.
-	  * Hotbar (bottom centre): tap a slot or press 1-6. Switching plays the
-	    unequip -> handling -> equip sounds and the item is usable after a
-	    short delay (no instant teleporting items).
-	  * The big action button uses the held item (PhotoController asks us).
-	  * Battery bars, low/empty battery warnings.
-	  * Everyone's devices are audible in 3D: EMF beeping (level 1 slow ...
+	Equipment are normal Roblox Tools in the normal Roblox backpack:
+	  * the default hotbar picks them (1-9, click or tap a slot)
+	  * using the held item is Tool.Activated (click / tap the screen):
+	    Camera -> photo (PhotoController), Flashlight / UV / EMF / Thermal /
+	    Night Vision -> on/off (EquipmentService validates every request)
+	  * the held item's battery is shown above the hotbar; low/empty warnings
+	  * the held camera's rear screen (REC, zoom, battery, focus) and the EMF
+	    display update locally; in first person your torch beam follows
+	    where you look
+	  * everyone's devices are audible in 3D: EMF beeping (level 1 slow ...
 	    level 5 frantic, with distortion), flashlight buzz near danger,
-	    scanner and UV hums. EMF LEDs light up on the device itself.
-	  * Your Thermal Scanner reading, UV residue reveal, Night Vision.
-	All actions are only requests - EquipmentService validates them.
+	    scanner and UV hums; EMF LEDs light up on the device itself
+	  * your Thermal Scanner reading, UV residue reveal, Night Vision
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
 local Workspace = game:GetService("Workspace")
 
 local Config = ReplicatedStorage:WaitForChild("Config")
@@ -35,18 +37,12 @@ EquipmentController.Failing = false
 EquipmentController.EquipLockUntil = 0
 EquipmentController.Changed = Signal.new()
 EquipmentController.ToolAudio = {}
-EquipmentController.Slots = {}
+EquipmentController.Focus = "Idle"
+EquipmentController.FocusUntil = 0
+EquipmentController.ShotAt = 0
+EquipmentController.ZoomFactor = 1
 
 local player = Players.LocalPlayer
-
-local KEYS = {
-	[Enum.KeyCode.One] = 1,
-	[Enum.KeyCode.Two] = 2,
-	[Enum.KeyCode.Three] = 3,
-	[Enum.KeyCode.Four] = 4,
-	[Enum.KeyCode.Five] = 5,
-	[Enum.KeyCode.Six] = 6,
-}
 
 local CLICK_SOUNDS = {
 	Flashlight = "Flashlight.ButtonClick",
@@ -65,26 +61,31 @@ local LOW_BATTERY_SOUNDS = {
 	NightVision = "NightVision.BatteryWarning",
 }
 
+local LIGHT_ITEMS = { Flashlight = true, UVLight = true }
+
 function EquipmentController:Init(controllers)
 	self.Controllers = controllers
 	self.Remote = Net.Event("EquipmentAction")
 	local UIKit = controllers.UIKit
 	local hud = controllers.HUDController
 
-	self.Hotbar = UIKit.Frame({
-		Name = "Hotbar",
+	-- held item + battery, just above the Roblox hotbar
+	self.BatteryLabel = UIKit.Label({
+		Name = "HeldBattery",
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -10),
-		Size = UDim2.fromOffset(400, 66),
-		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, 0, 1, -112),
+		Size = UDim2.fromOffset(320, 22),
+		Text = "",
+		Font = Enum.Font.Code,
+		TextSize = 16,
+		TextStrokeTransparency = 0.4,
+		Visible = false,
 		Parent = hud.Root,
 	})
-	UIKit.List(self.Hotbar, Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Bottom)
-
 	self.Readout = UIKit.Label({
 		Name = "Readout",
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -84),
+		Position = UDim2.new(0.5, 0, 1, -138),
 		Size = UDim2.fromOffset(300, 30),
 		Text = "",
 		Font = Enum.Font.Code,
@@ -99,68 +100,31 @@ function EquipmentController:Init(controllers)
 			self:_onState(state)
 		end
 	end)
-	controllers.ClientState.DataChanged:Connect(function()
-		self:_buildSlots()
-	end)
-	-- usable everywhere: at HQ too (photos only count during investigations,
-	-- batteries only drain on missions); hidden inside the Dark Room gallery
-	local function refreshVisibility()
-		self.Hotbar.Visible = not controllers.ClientState.InDarkRoom
-	end
-	controllers.ClientState.RoundChanged:Connect(refreshVisibility)
-	controllers.ClientState.DarkRoomChanged:Connect(refreshVisibility)
-	refreshVisibility()
 
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or controllers.ClientState.InDarkRoom then
-			return
-		end
-		local index = KEYS[input.KeyCode]
-		if index then
-			self:SelectSlot(index)
-		elseif input.KeyCode == Enum.KeyCode.ButtonR1 then
-			self:Cycle(1)
-		elseif input.KeyCode == Enum.KeyCode.ButtonL1 then
-			self:Cycle(-1)
-		end
-	end)
-	-- mouse wheel switches items (in first person the cursor is locked, so
-	-- the hotbar cannot be clicked)
-	UserInputService.InputChanged:Connect(function(input, gameProcessed)
-		if gameProcessed or controllers.ClientState.InDarkRoom or controllers.UIKit.IsAnyPanelOpen() then
-			return
-		end
-		if input.UserInputType == Enum.UserInputType.MouseWheel and input.Position.Z ~= 0 then
-			local now = os.clock()
-			if now - (self.LastWheel or 0) > 0.15 then
-				self.LastWheel = now
-				self:Cycle(if input.Position.Z < 0 then 1 else -1)
-			end
-		end
-	end)
+	-- the Roblox backpack is the hotbar (hidden inside the Dark Room gallery)
+	local function refreshBackpack()
+		self:_setBackpackVisible(not controllers.ClientState.InDarkRoom)
+	end
+	controllers.ClientState.DarkRoomChanged:Connect(refreshBackpack)
+	refreshBackpack()
 
 	local function watchCharacter(character: Model)
-		self.Equipped = nil
+		self:_setEquipped(nil)
 		character.ChildAdded:Connect(function(child)
 			if child:IsA("Tool") and child:GetAttribute("COCEquipment") then
-				self.Equipped = child.Name
-				self:_refreshSlots()
-				self.Changed:Fire(self.Equipped)
+				self:_setEquipped(child)
 			end
 		end)
 		character.ChildRemoved:Connect(function(child)
 			if child:IsA("Tool") and child.Name == self.Equipped then
-				self.Equipped = nil
-				self:_refreshSlots()
-				self.Changed:Fire(nil)
+				self:_setEquipped(nil)
 			end
 		end)
 		for _, child in ipairs(character:GetChildren()) do
 			if child:IsA("Tool") and child:GetAttribute("COCEquipment") then
-				self.Equipped = child.Name
+				self:_setEquipped(child)
 			end
 		end
-		self.Changed:Fire(self.Equipped)
 	end
 	player.CharacterAdded:Connect(watchCharacter)
 	if player.Character then
@@ -169,7 +133,6 @@ function EquipmentController:Init(controllers)
 end
 
 function EquipmentController:Start()
-	self:_buildSlots()
 	local accumulator = 0
 	RunService.Heartbeat:Connect(function(dt)
 		accumulator += dt
@@ -181,132 +144,68 @@ function EquipmentController:Start()
 		local ok, err = pcall(function()
 			self:_updateDevices(step)
 			self:_updateOwnItems()
+			self:_updateHeldScreen()
 		end)
 		if not ok then
 			warn("[EquipmentController]", err)
 		end
 	end)
-end
-
----------------------------------------------------------------------------
--- Hotbar
----------------------------------------------------------------------------
-
-function EquipmentController:GetOwnedItems()
-	local data = self.Controllers.ClientState.Data
-	local list = {}
-	for _, item in ipairs(EquipmentConfig.GetSorted()) do
-		local owned = item.Price == 0 or (data and data.OwnedEquipment and data.OwnedEquipment[item.Id])
-		if owned then
-			table.insert(list, item)
+	-- the local torch beam must follow the camera every frame
+	RunService:BindToRenderStep("COC_HeldBeam", Enum.RenderPriority.Camera.Value + 1, function()
+		local ok, err = pcall(self._updateBeam, self)
+		if not ok then
+			warn("[EquipmentController] beam:", err)
 		end
-	end
-	return list
+	end)
 end
 
-function EquipmentController:_buildSlots()
-	local UIKit = self.Controllers.UIKit
-	local theme = UIKit.Theme
-	local owned = self:GetOwnedItems()
-	local signature = ""
-	for _, item in ipairs(owned) do
-		signature ..= item.Id .. ","
+function EquipmentController:_setBackpackVisible(visible: boolean)
+	task.spawn(function()
+		for _ = 1, 10 do
+			if pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.Backpack, visible) then
+				return
+			end
+			task.wait(0.5)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Held item
+---------------------------------------------------------------------------
+
+function EquipmentController:_setEquipped(tool: Tool?)
+	if self.ActivatedConnection then
+		self.ActivatedConnection:Disconnect()
+		self.ActivatedConnection = nil
 	end
-	if signature == self.SlotSignature then
-		self:_refreshSlots()
-		return
-	end
-	self.SlotSignature = signature
-	for _, slot in pairs(self.Slots) do
-		slot.Button:Destroy()
-	end
-	self.Slots = {}
-	local touch = UIKit.IsTouch()
-	for index, item in ipairs(owned) do
-		local button = UIKit.Button({
-			Name = item.Id,
-			LayoutOrder = index,
-			Size = UDim2.fromOffset(58, 58),
-			BackgroundColor3 = theme.Bg,
-			BackgroundTransparency = 0.25,
-			CornerRadius = 14,
-			NoStroke = true, -- the selection stroke below is the only one
-			Parent = self.Hotbar,
-		}, function()
-			self:SelectSlot(index)
+	local previous = self.Equipped
+	local itemId = if tool then tool.Name else nil
+	self.Equipped = itemId
+	self.HeldTool = tool
+	local audio = self.Controllers.AudioController
+	if tool and itemId ~= previous then
+		local item = EquipmentConfig.Get(itemId :: string)
+		if item and audio then
+			audio:Play(item.Sounds .. ".Equip", nil)
+		end
+		self.EquipLockUntil = os.clock() + EquipmentConfig.EquipDelay
+		-- click / tap with the item in hand = use it
+		self.ActivatedConnection = tool.Activated:Connect(function()
+			self:UseEquipped()
 		end)
-		local stroke = UIKit.Stroke(button, theme.Stroke, 2, 0.3)
-		UIKit.Label({ Text = item.Icon, TextSize = 28, Size = UDim2.new(1, 0, 1, -8), Parent = button })
-		if not touch then
-			UIKit.Label({
-				Text = tostring(index),
-				TextSize = 12,
-				TextColor3 = theme.SubText,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextYAlignment = Enum.TextYAlignment.Top,
-				Position = UDim2.fromOffset(5, 3),
-				Size = UDim2.fromOffset(20, 14),
-				Parent = button,
-			})
-		end
-		local bar = UIKit.Frame({ Position = UDim2.new(0, 6, 1, -8), Size = UDim2.new(1, -12, 0, 4), BackgroundColor3 = Color3.fromRGB(50, 50, 60), Parent = button })
-		UIKit.Corner(bar, 2)
-		local fill = UIKit.Frame({ Size = UDim2.fromScale(1, 1), BackgroundColor3 = theme.Good, Parent = bar })
-		UIKit.Corner(fill, 2)
-		local dot = UIKit.Frame({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -5, 0, 5), Size = UDim2.fromOffset(8, 8), BackgroundColor3 = theme.Gold, Visible = false, Parent = button })
-		UIKit.Corner(dot, 4)
-		self.Slots[index] = { Item = item, Button = button, Stroke = stroke, Fill = fill, Dot = dot }
-	end
-	self.Hotbar.Size = UDim2.fromOffset(#owned * 66, 66)
-	self:_refreshSlots()
-end
-
-function EquipmentController:_refreshSlots()
-	local theme = self.Controllers.UIKit.Theme
-	for _, slot in pairs(self.Slots) do
-		local id = slot.Item.Id
-		local battery = self.Battery[id] or 100
-		slot.Fill.Size = UDim2.fromScale(math.clamp(battery / 100, 0, 1), 1)
-		slot.Fill.BackgroundColor3 = if battery <= EquipmentConfig.CriticalBattery then theme.Accent elseif battery <= EquipmentConfig.LowBattery then theme.Gold else theme.Good
-		slot.Dot.Visible = self.On[id] == true
-		local selected = self.Equipped == id or (slot.Item.Wearable and self.On[id] == true)
-		slot.Stroke.Color = if selected then theme.Gold else theme.Stroke
-		slot.Stroke.Transparency = if selected then 0 else 0.3
-	end
-end
-
--- Next / previous hand item (wheel, R1 / L1).
-function EquipmentController:Cycle(direction: number)
-	local items = {}
-	for _, slot in ipairs(self.Slots) do
-		if not slot.Item.Wearable then
-			table.insert(items, slot.Item.Id)
+	elseif not tool and previous then
+		local item = EquipmentConfig.Get(previous)
+		if item and audio then
+			audio:Play(item.Sounds .. ".Unequip", nil)
 		end
 	end
-	if #items == 0 then
-		return
-	end
-	local current = table.find(items, self.Equipped or "") or 0
-	local nextIndex = if current == 0 then 1 else ((current - 1 + direction) % #items) + 1
-	self:SelectItem(items[nextIndex])
+	self:_refreshBattery()
+	self.Changed:Fire(self.Equipped)
 end
 
-function EquipmentController:SelectSlot(index: number)
-	local slot = self.Slots[index]
-	if slot then
-		self:SelectItem(slot.Item.Id)
-	end
-end
-
+-- Takes an item out of the backpack (PhotoController: Q / the touch button).
 function EquipmentController:SelectItem(itemId: string)
-	local item = EquipmentConfig.Get(itemId)
-	if not item then
-		return
-	end
-	if item.Wearable then
-		self:Toggle(itemId)
-		return
-	end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local backpack = player:FindFirstChildOfClass("Backpack")
@@ -314,32 +213,26 @@ function EquipmentController:SelectItem(itemId: string)
 		return
 	end
 	local tool = backpack:FindFirstChild(itemId)
-	if not tool or not tool:IsA("Tool") then
-		if self.Equipped == itemId and not player:GetAttribute("InMission") then
-			-- same slot again at HQ: put it away
-			local held = EquipmentConfig.Get(itemId)
-			if held then
-				self.Controllers.AudioController:Play(held.Sounds .. ".Unequip", nil)
-			end
-			humanoid:UnequipTools()
-		end
-		return -- already in hand (or not owned)
+	if tool and tool:IsA("Tool") then
+		humanoid:EquipTool(tool)
 	end
-	local audio = self.Controllers.AudioController
-	local previous = self.Equipped and EquipmentConfig.Get(self.Equipped)
-	if previous then
-		audio:Play(previous.Sounds .. ".Unequip", nil)
-	end
-	audio:Play("Equipment.Handling", nil)
-	humanoid:EquipTool(tool)
-	self.EquipLockUntil = os.clock() + EquipmentConfig.EquipDelay
-	task.delay(0.12, function()
-		audio:Play(item.Sounds .. ".Equip", nil)
-	end)
 end
 
 function EquipmentController:IsReady(): boolean
 	return os.clock() >= self.EquipLockUntil
+end
+
+-- The held item was clicked / tapped.
+function EquipmentController:UseEquipped()
+	local itemId = self.Equipped
+	if not itemId then
+		return
+	end
+	if itemId == "Camera" then
+		self.Controllers.PhotoController:Shoot()
+	else
+		self:Toggle(itemId)
+	end
 end
 
 function EquipmentController:Toggle(itemId: string)
@@ -355,14 +248,36 @@ function EquipmentController:Toggle(itemId: string)
 	self.Remote:FireServer("Toggle", itemId)
 end
 
-function EquipmentController:UseEquipped()
-	if self.Equipped then
-		self:Toggle(self.Equipped)
-	end
-end
-
 function EquipmentController:GetEquippedItem()
 	return self.Equipped and EquipmentConfig.Get(self.Equipped)
+end
+
+-- PhotoController feedback for the camera's rear screen
+function EquipmentController:SetFocus(state: string)
+	self.Focus = state
+	self.FocusUntil = os.clock() + (if state == "Error" then 2.5 else 0.6)
+end
+
+function EquipmentController:SetZoom(factor: number)
+	self.ZoomFactor = factor
+end
+
+function EquipmentController:NoteShot()
+	self.ShotAt = os.clock()
+end
+
+function EquipmentController:_refreshBattery()
+	local item = self:GetEquippedItem()
+	if not item then
+		self.BatteryLabel.Visible = false
+		return
+	end
+	local battery = math.floor(self.Battery[item.Id] or 100)
+	local theme = self.Controllers.UIKit.Theme
+	local on = if item.Toggle then (if self.On[item.Id] then "  ON" else "  OFF") else ""
+	self.BatteryLabel.Text = string.format("%s %s%s  ·  🔋 %d%%", item.Icon, string.upper(item.Name), on, battery)
+	self.BatteryLabel.TextColor3 = if battery <= EquipmentConfig.CriticalBattery then theme.Accent elseif battery <= EquipmentConfig.LowBattery then theme.Gold else theme.Text
+	self.BatteryLabel.Visible = true
 end
 
 function EquipmentController:_onState(state)
@@ -370,9 +285,6 @@ function EquipmentController:_onState(state)
 	local previous = self.Battery
 	for id, value in pairs(state.Battery or {}) do
 		local before = previous[id]
-		if before and value > before + 5 and id == self.Equipped then
-			self.Controllers.ViewmodelController:BatteryChange()
-		end
 		if before then
 			if before > EquipmentConfig.LowBattery and value <= EquipmentConfig.LowBattery and value > 0 then
 				audio:Play(LOW_BATTERY_SOUNDS[id] or "Camera.BatteryLow", nil)
@@ -392,8 +304,107 @@ function EquipmentController:_onState(state)
 	if (self.On.NightVision == true) ~= wasNV then
 		self.Controllers.FxController:SetNightVision(self.On.NightVision == true)
 	end
-	self:_refreshSlots()
+	self:_refreshBattery()
 	self.Changed:Fire(self.Equipped)
+end
+
+-- The held camera's rear screen and the EMF display (local only).
+function EquipmentController:_updateHeldScreen()
+	local tool = self.HeldTool
+	if not tool or not tool.Parent then
+		return
+	end
+	local display = tool:FindFirstChild("Display", true)
+	local background = display and display:FindFirstChild("Background")
+	if not background then
+		return
+	end
+	local now = os.clock()
+	if self.Equipped == "Camera" then
+		local battery = self.Battery.Camera or 100
+		local focus = if now < self.FocusUntil then self.Focus else "Idle"
+		local top = background:FindFirstChild("Top") :: TextLabel?
+		local zoom = background:FindFirstChild("Zoom") :: TextLabel?
+		local batteryLabel = background:FindFirstChild("Battery") :: TextLabel?
+		local status = background:FindFirstChild("Status") :: TextLabel?
+		if top then
+			local rec = if math.floor(now * 2) % 2 == 0 then "● REC" else "  REC"
+			top.Text = rec .. (if focus == "Focusing" then "  AF ▣" elseif focus == "Error" then "  AF ERR" else "  AF")
+			top.TextColor3 = if focus == "Error" then Color3.fromRGB(255, 70, 60) else Color3.fromRGB(150, 230, 170)
+		end
+		if zoom then
+			zoom.Text = string.format("x%.1f", self.ZoomFactor or 1)
+		end
+		if batteryLabel then
+			batteryLabel.Text = string.format("BAT %d%%", math.floor(battery))
+			batteryLabel.TextColor3 = if battery <= EquipmentConfig.LowBattery then Color3.fromRGB(255, 90, 70) else Color3.fromRGB(150, 230, 170)
+		end
+		if status then
+			status.Text = if now - self.ShotAt < 0.6 then "SAVED ▮" elseif focus == "Error" then "!! INTERFERENCE" else ""
+		end
+	elseif self.Equipped == "EMF" then
+		local reading = background:FindFirstChild("Reading") :: TextLabel?
+		if reading then
+			local level = tool:GetAttribute("EMFLevel") or 0
+			reading.Text = if self.On.EMF then string.format("%.1f mG", level * 2.3 + math.random() * 0.4) else "OFF"
+		end
+	end
+end
+
+-- First person: the hand-held beam points where the arm points, not where
+-- you look, so your own view gets a local beam from the camera. The server
+-- still decides on / off / flicker through the real beam (which everyone
+-- else sees); only its brightness is hidden locally.
+function EquipmentController:_updateBeam()
+	local tool = self.HeldTool
+	local camera = Workspace.CurrentCamera
+	local real = tool and tool.Parent and LIGHT_ITEMS[tool.Name] and tool:FindFirstChild("Beam", true)
+	local wanted = camera ~= nil and real ~= nil and real:IsA("SpotLight") and player:GetAttribute("InMission") == true
+	if not wanted then
+		if self.BeamPart then
+			self.BeamPart:Destroy()
+			self.BeamPart = nil
+		end
+		if self.HiddenBeam and self.HiddenBeam.Parent then
+			local base = self.HiddenBeam:GetAttribute("BaseBrightness")
+			self.HiddenBeam.Brightness = if type(base) == "number" then base else 2
+		end
+		self.HiddenBeam = nil
+		return
+	end
+	local spot = real :: SpotLight
+	if self.HiddenBeam ~= spot then
+		self.HiddenBeam = spot
+	end
+	if not self.BeamPart or not self.BeamPart.Parent then
+		local part = Instance.new("Part")
+		part.Name = "COC_HeldBeam"
+		part.Size = Vector3.new(0.1, 0.1, 0.1)
+		part.Transparency = 1
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		local light = Instance.new("SpotLight")
+		light.Name = "Beam"
+		light.Face = Enum.NormalId.Front
+		light.Shadows = true
+		light.Parent = part
+		part.Parent = camera
+		self.BeamPart = part
+	end
+	local light = self.BeamPart:FindFirstChildOfClass("SpotLight") :: SpotLight
+	local base = spot:GetAttribute("BaseBrightness")
+	light.Enabled = spot.Enabled
+	light.Brightness = if type(base) == "number" then base else 2
+	light.Range = spot.Range
+	light.Angle = spot.Angle
+	light.Color = spot.Color
+	if spot.Brightness ~= 0 then
+		spot.Brightness = 0
+	end
+	self.BeamPart.CFrame = (camera :: Camera).CFrame * CFrame.new(0.5, -0.5, -0.8)
 end
 
 ---------------------------------------------------------------------------

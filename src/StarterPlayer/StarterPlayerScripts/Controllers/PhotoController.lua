@@ -2,12 +2,12 @@
 	PhotoController (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/PhotoController
 
-	The one-button core loop.
-	  Mobile : big action button (placed next to the jump button, thumb-reachable)
-	  PC     : Left Mouse Button or E (the on-screen button also works)
-	  Gamepad: R2 / ButtonX
-	The big button is PHOTO while the camera is held, otherwise it uses the
-	held item (flashlight, EMF, ...). Zoom: Q / L2 / the 🔍 button.
+	The camera is a normal Roblox Tool: pick it in the Roblox hotbar and
+	click / tap to take a photo (EquipmentController forwards Tool.Activated
+	to Shoot). Touch screens also get a big action button next to the jump
+	button (PHOTO with the camera, otherwise it uses the held item).
+	Zoom: Q / L2 / the 🔍 button; with another item in hand they take the
+	camera out.
 
 	Camera sound design:  aim -> quiet autofocus "beep" + lens "zzzt"
 	-> CLICK + FLASH -> flash recharge whine. Near a dangerous anomaly the
@@ -18,7 +18,6 @@
 	(PhotoService) decides whether anything was captured.
 ]]
 
-local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -35,7 +34,6 @@ local Format = require(Modules:WaitForChild("Format"))
 local PhotoController = {}
 PhotoController.LastShot = 0
 PhotoController.Zoomed = false
-PhotoController.PromptsShown = 0
 PhotoController.LastFocusDistance = 0
 PhotoController.NextFocusCheck = 0
 PhotoController.NextBrokenFocus = 0
@@ -109,18 +107,6 @@ function PhotoController:Init(controllers)
 	})
 	UIKit.Corner(self.Cooldown, UDim.new(1, 0))
 	self.ButtonScale = UIKit.new("UIScale", { Parent = button })
-	self.Hint = UIKit.Label({
-		Name = "KeyHint",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 1, 4),
-		Size = UDim2.fromOffset(220, 18),
-		Text = "CLICK / E",
-		Font = theme.FontBlack,
-		TextSize = 13,
-		TextColor3 = theme.SubText,
-		TextStrokeTransparency = 0.6,
-		Parent = button,
-	})
 	self.Button = button
 	self.FailLabel = UIKit.Label({
 		Name = "FailLabel",
@@ -154,28 +140,17 @@ function PhotoController:Init(controllers)
 	button.Activated:Connect(function()
 		self:Press()
 	end)
-	-- E also triggers ProximityPrompts (doors, lockers...): don't shoot while one is shown
-	ProximityPromptService.PromptShown:Connect(function()
-		self.PromptsShown += 1
-	end)
-	ProximityPromptService.PromptHidden:Connect(function()
-		self.PromptsShown = math.max(0, self.PromptsShown - 1)
-	end)
+	-- click / tap with an item in hand is Tool.Activated (EquipmentController);
+	-- Q / L2 zoom the camera or take it out
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed or UIKit.IsAnyPanelOpen() or controllers.ClientState.InDarkRoom then
 			return
 		end
-		-- at HQ the mouse / E only act while you hold an item
-		if not controllers.ClientState:IsInMission() and not controllers.EquipmentController.Equipped then
-			return
-		end
 		local key = input.KeyCode
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or key == Enum.KeyCode.ButtonR2 or key == Enum.KeyCode.ButtonX then
-			self:Press()
-		elseif key == Enum.KeyCode.E and self.PromptsShown == 0 then
-			self:Press()
-		elseif key == Enum.KeyCode.Q or key == Enum.KeyCode.ButtonL2 then
-			self:ToggleZoom()
+		if key == Enum.KeyCode.Q or key == Enum.KeyCode.ButtonL2 then
+			if controllers.ClientState:IsInMission() or controllers.EquipmentController.Equipped then
+				self:ToggleZoom()
+			end
 		end
 	end)
 
@@ -225,12 +200,10 @@ function PhotoController:_layout()
 		diameter = if small then 100 else 140
 		right = jumpRight + jumpSize + 16
 		bottom = jumpBottom + 6
-		self.Hint.Visible = false
 	else
 		diameter = math.clamp(math.floor(minDim * 0.11), 84, 120)
 		right = 28
 		bottom = 40
-		self.Hint.Visible = true
 	end
 	self.Button.Size = UDim2.fromOffset(diameter, diameter)
 	self.Button.Position = UDim2.new(1, -right, 1, -bottom)
@@ -271,15 +244,8 @@ function PhotoController:_refreshButton(itemId: string?)
 	end
 	local state = self.Controllers.ClientState
 	local usable = not state.InDarkRoom and (state:IsInMission() or item ~= nil)
-	-- the controls for what you hold (PC / gamepad)
-	if not item then
-		self.Hint.Text = "CLICK · Q  =  CAMERA"
-	elseif item.Id == "Camera" then
-		self.Hint.Text = "CLICK / E  PHOTO · Q  ZOOM"
-	else
-		self.Hint.Text = "CLICK  ON/OFF · Q  CAMERA"
-	end
-	self.Button.Visible = usable
+	-- PC / gamepad click with the item in hand; the big button is for touch
+	self.Button.Visible = usable and self.Touch == true
 	-- touch: 🔍 zooms the camera; with anything else in hand it takes the camera out
 	self.ZoomButton.Visible = usable and self.Touch == true and item ~= nil
 	self.ZoomButton.Text = if itemId == "Camera" then "🔍" else "📷"
@@ -316,7 +282,7 @@ function PhotoController:ToggleZoom(silent: boolean?)
 	self.Zoomed = not self.Zoomed
 	local normal = self.Controllers.FirstPersonController.BaseFieldOfView
 	TweenService:Create(camera, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = if self.Zoomed then ZOOM_FOV else normal }):Play()
-	self.Controllers.ViewmodelController:SetZoom(self.Zoomed, normal / ZOOM_FOV)
+	equipment:SetZoom(if self.Zoomed then normal / ZOOM_FOV else 1)
 	if not silent then
 		local audio = self.Controllers.AudioController
 		audio:Play(if self.Zoomed then "Camera.ZoomIn" else "Camera.ZoomOut", nil)
@@ -348,7 +314,7 @@ function PhotoController:_autofocus()
 				local offset = beacon.Position - origin
 				if offset.Magnitude < 55 and offset.Magnitude > 0.1 and math.deg(math.acos(math.clamp(look:Dot(offset.Unit), -1, 1))) < 25 then
 					self.NextBrokenFocus = now + 3.5
-					self.Controllers.ViewmodelController:SetFocus("Error")
+					equipment:SetFocus("Error")
 					task.spawn(function()
 						audio:Play("Camera.Focus", nil)
 						task.wait(0.4)
@@ -378,7 +344,7 @@ function PhotoController:_autofocus()
 	local last = self.LastFocusDistance
 	if math.abs(distance - last) / math.max(distance, 4) > 0.25 then
 		self.LastFocusDistance = distance
-		self.Controllers.ViewmodelController:SetFocus("Focusing")
+		equipment:SetFocus("Focusing")
 		-- "beep... zzzt"
 		audio:Play("Camera.Focus", nil)
 		task.delay(0.12, function()
@@ -426,7 +392,7 @@ function PhotoController:Shoot()
 	end)
 	fx:Flash(0.85)
 	fx:FreezeFrame(0.1)
-	self.Controllers.ViewmodelController:Shutter()
+	equipment:NoteShot()
 	self.Remote:FireServer(camera.CFrame)
 
 	self.ButtonScale.Scale = 0.85

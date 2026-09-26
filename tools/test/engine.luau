@@ -821,7 +821,10 @@ signalProperty("Humanoid", "HealthChanged")
 signalProperty("Humanoid", "AnimationPlayed")
 
 roblox.implementMethod("ReplicatedFirst", "RemoveDefaultLoadingScreen", function() end)
-roblox.implementMethod("StarterGui", "SetCoreGuiEnabled", function() end)
+engine.coreGui = {} :: { [string]: boolean }
+roblox.implementMethod("StarterGui", "SetCoreGuiEnabled", function(_, coreGuiType, enabled)
+	engine.coreGui[tostring(coreGuiType)] = enabled
+end)
 roblox.implementMethod("StarterGui", "GetCoreGuiEnabled", function()
 	return true
 end)

@@ -3,9 +3,12 @@
 	Location: ServerScriptService/Services/EquipmentService
 
 	Physical, audible equipment.
-	  * Hand items (Camera, Flashlight, EMF, Thermal, UV Light) are real Tools,
-	    so characters visibly hold them and equip/unequip has feedback.
-	  * Night Vision is worn (goggles appear on the head while on).
+	  * Every item is a normal Roblox Tool in the normal Roblox backpack:
+	    pick it in the hotbar, click / tap to use it (the client forwards
+	    Tool.Activated as an EquipmentAction request).
+	  * Hand items (Camera, Flashlight, EMF, Thermal, UV Light) have a model.
+	  * Night Vision is a Tool without a handle: using it puts the goggles on
+	    (they stay on when you switch to another item).
 	  * Batteries drain while items are on; photos cost camera battery.
 	  * Dangerous anomalies make lights buzz, flicker and sometimes fail.
 	  * EMF level is computed here and replicated through tool attributes so
@@ -99,6 +102,12 @@ function EquipmentService:Init(services)
 	Players.PlayerAdded:Connect(watch)
 	for _, player in ipairs(Players:GetPlayers()) do
 		watch(player)
+		-- characters that spawned before this service was ready get their tools now
+		if player.Character then
+			task.defer(function()
+				self:RefreshTools(player)
+			end)
+		end
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		self.State[player] = nil
@@ -241,6 +250,9 @@ end
 
 -- (Re)builds the player's equipment tools. Keeps the currently held item in hand.
 function EquipmentService:RefreshTools(player: Player)
+	if not self.Services then
+		return -- not initialised yet: CharacterService calls again once data loads
+	end
 	local character = player.Character
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -260,28 +272,31 @@ function EquipmentService:RefreshTools(player: Player)
 
 	local toEquip = nil
 	for _, item in ipairs(EquipmentConfig.GetSorted()) do
-		if item.Wearable or not self:Owns(player, item.Id) then
+		if not self:Owns(player, item.Id) then
 			continue
 		end
 		local tool = Instance.new("Tool")
 		tool.Name = item.Id
 		tool.ToolTip = item.Name
-		tool.RequiresHandle = true
 		tool.CanBeDropped = false
-		tool.ManualActivationOnly = true
+		tool.ManualActivationOnly = false -- click / tap uses the item
 		tool.Grip = CFrame.new(0, -0.1, 0.25)
 		tool:SetAttribute("COCEquipment", true)
 		tool:SetAttribute("On", false)
 		local skin = self:GetSkin(player, item.Id)
-		local model = EquipmentModels.Build(item.Id, skin)
-		if not model then
+		local model = if item.Wearable then nil else EquipmentModels.Build(item.Id, skin)
+		if model then
+			tool.RequiresHandle = true
+			for _, child in ipairs(model:GetChildren()) do
+				child.Parent = tool
+			end
+			model:Destroy()
+		elseif item.Wearable then
+			tool.RequiresHandle = false
+		else
 			tool:Destroy()
 			continue
 		end
-		for _, child in ipairs(model:GetChildren()) do
-			child.Parent = tool
-		end
-		model:Destroy()
 		local skinId = nil
 		for id, candidate in pairs(CosmeticsConfig.Skins) do
 			if candidate == skin then
@@ -344,7 +359,8 @@ function EquipmentService:_wireTool(player: Player, tool: Tool, item)
 	end)
 	tool.Unequipped:Connect(function()
 		local state = self.State[player]
-		if state and item.Toggle and state.On[item.Id] then
+		-- hand items switch off when put away; worn goggles stay on
+		if state and item.Toggle and not item.Wearable and state.On[item.Id] then
 			self:_setOn(player, item.Id, false, true)
 		end
 		audio:Play(item.Sounds .. ".Unequip", player.Character and player.Character:FindFirstChild("HumanoidRootPart"), { Exclude = player })

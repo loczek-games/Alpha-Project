@@ -12,13 +12,13 @@ and caught on camera.
 |---|---|
 | **Core loop** | P.I.A. HQ lobby → physical queue zone (1-6 investigators, parties stay together) → mission in the **DEAD MALL** (first person) → Evidence Report → back to HQ |
 | **Understand in 5 s** | "📸 Spot something WRONG. Take a PHOTO." |
-| **Controls** | Mobile: PHOTO button next to jump, 📷/🔍 button, tap the hotbar · PC: Left Click / E use item · 1-6 or mouse wheel switch item · Q zoom (or take the camera out) · Shift run · Ctrl/C sneak · Gamepad: R2 / X use, L1 / R1 switch, L2 zoom |
+| **Controls** | Equipment are normal Roblox items: pick one in the Roblox hotbar (1-9 / click / tap), click or tap to use it (camera = photo, others on/off) · Mobile also: big PHOTO button next to jump, 📷/🔍 button · Q zoom (or take the camera out) · Shift run · Ctrl/C sneak · Gamepad: R2 use, L2 zoom |
 | **Lobby** | Physical P.I.A. HQ: mission portals with "[DEAD MALL] 0/6 PLAYERS" boards and a 15 s timer, equipment / camera lab / flashlight bench / archive / supply / party / invite / settings stations, the Dark Room |
 | **Places** | Works as one place (Studio / single place) or as Lobby place + Gameplay place with reserved servers (`MapConfig.Places`) |
 | **Map** | Dead Mall: Grand Hall (2 floors, balconies, bridges, escalators), Food Court + 5 restaurants, Supermarket, Electronics, Clothing, Toy Store, Arcade, Cinema/Theaters, Restrooms, Service Halls, Back of House, Security Room, Parking Garage, Entrance. Baked to `assets/baked/DeadMall.rbxm` |
 | **Anomalies** | 52 anomalies: modular AI (Idle/Observe/Stalk/Search/InvestigateNoise/Follow/Hide/Chase/Attack/Disappear), floor + ceiling movers, reusable object behaviours, sound-reactive hunters, the Ceiling Crawler |
 | **Jumpscares** | Per-anomaly first-person jumpscares, stylised blood (toggle), FULL/REDUCED intensity; downed → teammates revive |
-| **Equipment** | DSLR-style camera with a live rear screen + first-person arms viewmodel, Flashlight (bench upgrades), EMF, Thermal, UV Light, Night Vision |
+| **Equipment** | Normal Roblox Tools: DSLR-style camera with a live rear screen, Flashlight (bench upgrades; in first person the beam follows your view), EMF, Thermal, UV Light, Night Vision (goggles) |
 | **Audio** | Original synthesised sounds, SoundGroup mixer, preload + verification, fallback for every sound (`docs/AUDIO.md`) |
 | **Social** | Parties (leader, ready, avatar, mic status), INVITE FRIENDS (SocialService) |
 | **Monetization** | PRO CAMERA, TACTICAL FLASHLIGHT, INVESTIGATOR PACK, VIP INVESTIGATOR, skins, dark room decor, REVIVE, PARANORMAL SURGE. Everything gameplay-relevant is also reachable for free |
@@ -205,10 +205,10 @@ type-checked, and every remote is rate-limited.
   - `lune run tools/test/playtest_full.luau`: server `Main` + every service
     and client `Loading` + `ClientMain` + every controller. A player joins, the
     loading screen goes away, they walk into the DEAD MALL queue zone, the
-    mission starts, they take the camera out (keys, Q, mouse wheel), take a
-    photo, and return to HQ.
-  - `lune run tools/test/playtest_equipment.luau`: equipment and the
-    first-person viewmodel in detail.
+    mission starts, they use the camera and the flashlight from the Roblox
+    hotbar, take a photo, and return to HQ.
+  - `lune run tools/test/playtest_equipment.luau`: the equipment Tools in
+    detail (hotbar, click to use, flashlight beam, night vision).
   Build first with `rojo build default.project.json --output build/CaughtOnCamera.rbxl`.
 - Maps are baked with `lune run tools/bake/bake.luau` and were inspected with
   an offline renderer.

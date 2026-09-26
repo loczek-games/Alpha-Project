@@ -7,7 +7,6 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
 
 local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
 local Controllers = script.Parent:WaitForChild("Controllers")
@@ -26,7 +25,6 @@ local ORDER = {
 	"JumpscareController",
 	"DownedController",
 	"EquipmentController",
-	"ViewmodelController",
 	"PhotoController",
 	"MovementController",
 	"FootstepController",
@@ -41,18 +39,6 @@ local ORDER = {
 	"DarkRoomController",
 	"ChatTagController",
 }
-
--- Equipment uses real Tools, but the game draws its own compact hotbar
--- (EquipmentController) - hide the default backpack bar on every device.
-task.spawn(function()
-	for _ = 1, 10 do
-		local ok = pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.Backpack, false)
-		if ok then
-			break
-		end
-		task.wait(0.5)
-	end
-end)
 
 -- one broken controller must not take the whole client (and the loading
 -- screen) down with it
