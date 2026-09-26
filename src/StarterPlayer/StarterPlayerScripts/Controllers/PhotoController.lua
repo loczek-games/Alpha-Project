@@ -113,7 +113,7 @@ function PhotoController:Init(controllers)
 		Name = "KeyHint",
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 1, 4),
-		Size = UDim2.fromOffset(160, 18),
+		Size = UDim2.fromOffset(220, 18),
 		Text = "CLICK / E",
 		Font = theme.FontBlack,
 		TextSize = 13,
@@ -271,8 +271,18 @@ function PhotoController:_refreshButton(itemId: string?)
 	end
 	local state = self.Controllers.ClientState
 	local usable = not state.InDarkRoom and (state:IsInMission() or item ~= nil)
+	-- the controls for what you hold (PC / gamepad)
+	if not item then
+		self.Hint.Text = "CLICK · Q  =  CAMERA"
+	elseif item.Id == "Camera" then
+		self.Hint.Text = "CLICK / E  PHOTO · Q  ZOOM"
+	else
+		self.Hint.Text = "CLICK  ON/OFF · Q  CAMERA"
+	end
 	self.Button.Visible = usable
-	self.ZoomButton.Visible = usable and self.Touch == true and itemId == "Camera"
+	-- touch: 🔍 zooms the camera; with anything else in hand it takes the camera out
+	self.ZoomButton.Visible = usable and self.Touch == true and item ~= nil
+	self.ZoomButton.Text = if itemId == "Camera" then "🔍" else "📷"
 	if itemId ~= "Camera" and self.Zoomed then
 		self:ToggleZoom(true)
 	end
@@ -293,6 +303,10 @@ end
 function PhotoController:ToggleZoom(silent: boolean?)
 	local equipment = self.Controllers.EquipmentController
 	if not self.Zoomed and equipment.Equipped ~= "Camera" then
+		-- Q / L2 with anything else in hand: take the camera out
+		if not silent then
+			equipment:SelectItem("Camera")
+		end
 		return
 	end
 	local camera = Workspace.CurrentCamera

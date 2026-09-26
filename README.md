@@ -12,7 +12,7 @@ and caught on camera.
 |---|---|
 | **Core loop** | P.I.A. HQ lobby → physical queue zone (1-6 investigators, parties stay together) → mission in the **DEAD MALL** (first person) → Evidence Report → back to HQ |
 | **Understand in 5 s** | "📸 Spot something WRONG. Take a PHOTO." |
-| **Controls** | Mobile: PHOTO button next to jump · PC: Left Click / E · Gamepad: R2 / X · hotbar 1-6 · Shift run · Ctrl/C sneak · Q zoom |
+| **Controls** | Mobile: PHOTO button next to jump, 📷/🔍 button, tap the hotbar · PC: Left Click / E use item · 1-6 or mouse wheel switch item · Q zoom (or take the camera out) · Shift run · Ctrl/C sneak · Gamepad: R2 / X use, L1 / R1 switch, L2 zoom |
 | **Lobby** | Physical P.I.A. HQ: mission portals with "[DEAD MALL] 0/6 PLAYERS" boards and a 15 s timer, equipment / camera lab / flashlight bench / archive / supply / party / invite / settings stations, the Dark Room |
 | **Places** | Works as one place (Studio / single place) or as Lobby place + Gameplay place with reserved servers (`MapConfig.Places`) |
 | **Map** | Dead Mall: Grand Hall (2 floors, balconies, bridges, escalators), Food Court + 5 restaurants, Supermarket, Electronics, Clothing, Toy Store, Arcade, Cinema/Theaters, Restrooms, Service Halls, Back of House, Security Room, Parking Garage, Entrance. Baked to `assets/baked/DeadMall.rbxm` |
@@ -198,6 +198,18 @@ type-checked, and every remote is rate-limited.
   fixtures/markers in its zones, the ceiling crawler node graph, every sound
   path used in code exists, lobby queue zones / stations / dark room, every
   equipment model and skin builds, shop products point at real items.
+- **Headless play tests** run the real game code in Lune on the built place
+  (`tools/test/engine.luau` + `place.luau` emulate the parts of the engine the
+  game needs: signals, remotes between one server and one client, tools,
+  pivots, services):
+  - `lune run tools/test/playtest_full.luau`: server `Main` + every service
+    and client `Loading` + `ClientMain` + every controller. A player joins, the
+    loading screen goes away, they walk into the DEAD MALL queue zone, the
+    mission starts, they take the camera out (keys, Q, mouse wheel), take a
+    photo, and return to HQ.
+  - `lune run tools/test/playtest_equipment.luau`: equipment and the
+    first-person viewmodel in detail.
+  Build first with `rojo build default.project.json --output build/CaughtOnCamera.rbxl`.
 - Maps are baked with `lune run tools/bake/bake.luau` and were inspected with
   an offline renderer.
 - The game has **not** been play-tested inside Roblox Studio (Studio is not

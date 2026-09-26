@@ -118,6 +118,24 @@ function EquipmentController:Init(controllers)
 		local index = KEYS[input.KeyCode]
 		if index then
 			self:SelectSlot(index)
+		elseif input.KeyCode == Enum.KeyCode.ButtonR1 then
+			self:Cycle(1)
+		elseif input.KeyCode == Enum.KeyCode.ButtonL1 then
+			self:Cycle(-1)
+		end
+	end)
+	-- mouse wheel switches items (in first person the cursor is locked, so
+	-- the hotbar cannot be clicked)
+	UserInputService.InputChanged:Connect(function(input, gameProcessed)
+		if gameProcessed or controllers.ClientState.InDarkRoom or controllers.UIKit.IsAnyPanelOpen() then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseWheel and input.Position.Z ~= 0 then
+			local now = os.clock()
+			if now - (self.LastWheel or 0) > 0.15 then
+				self.LastWheel = now
+				self:Cycle(if input.Position.Z < 0 then 1 else -1)
+			end
 		end
 	end)
 
@@ -255,6 +273,22 @@ function EquipmentController:_refreshSlots()
 		slot.Stroke.Color = if selected then theme.Gold else theme.Stroke
 		slot.Stroke.Transparency = if selected then 0 else 0.3
 	end
+end
+
+-- Next / previous hand item (wheel, R1 / L1).
+function EquipmentController:Cycle(direction: number)
+	local items = {}
+	for _, slot in ipairs(self.Slots) do
+		if not slot.Item.Wearable then
+			table.insert(items, slot.Item.Id)
+		end
+	end
+	if #items == 0 then
+		return
+	end
+	local current = table.find(items, self.Equipped or "") or 0
+	local nextIndex = if current == 0 then 1 else ((current - 1 + direction) % #items) + 1
+	self:SelectItem(items[nextIndex])
 end
 
 function EquipmentController:SelectSlot(index: number)
