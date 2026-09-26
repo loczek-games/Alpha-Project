@@ -40,12 +40,20 @@ local ORDER = {
 local services = {}
 
 for _, name in ipairs(ORDER) do
-	services[name] = require(ServicesFolder:WaitForChild(name))
+	local module = ServicesFolder:WaitForChild(name, 10)
+	local ok, result = pcall(function()
+		return require(module :: ModuleScript)
+	end)
+	if ok and type(result) == "table" then
+		services[name] = result
+	else
+		warn(string.format("[Main] %s failed to load: %s", name, tostring(result)))
+	end
 end
 
 for _, name in ipairs(ORDER) do
 	local service = services[name]
-	if service.Init then
+	if service and service.Init then
 		local ok, err = pcall(service.Init, service, services)
 		if not ok then
 			warn(string.format("[Main] %s:Init failed: %s", name, tostring(err)))
@@ -55,7 +63,7 @@ end
 
 for _, name in ipairs(ORDER) do
 	local service = services[name]
-	if service.Start then
+	if service and service.Start then
 		task.spawn(function()
 			local ok, err = pcall(service.Start, service)
 			if not ok then

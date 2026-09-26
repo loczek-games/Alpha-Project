@@ -31,8 +31,18 @@ black.BackgroundColor3 = Color3.new(0, 0, 0)
 black.BorderSizePixel = 0
 black.Parent = gui
 gui.Parent = playerGui
+-- registered first, so LoadingController can always remove it
+shared.COC_LoadingGui = gui
 
 ReplicatedFirst:RemoveDefaultLoadingScreen()
+
+-- failsafe: never leave the player on a black screen, whatever breaks later
+task.delay(45, function()
+	if gui.Parent then
+		warn("[Loading] loading screen timed out - removing it (check the Output for earlier errors)")
+		gui:Destroy()
+	end
+end)
 
 local arriving = nil
 pcall(function()
@@ -60,7 +70,6 @@ local ok, err = pcall(function()
 		Headline = "LOADING INVESTIGATION",
 	})
 	shared.COC_LoadingScreen = screen
-	shared.COC_LoadingGui = gui
 	if arriving then
 		arriving:Destroy()
 	end
@@ -76,4 +85,12 @@ local ok, err = pcall(function()
 end)
 if not ok then
 	warn("[Loading]", err)
+	-- no case file: keep a plain black screen with a status line
+	local text = Instance.new("TextLabel")
+	text.BackgroundTransparency = 1
+	text.Size = UDim2.fromScale(1, 1)
+	text.Text = "LOADING INVESTIGATION..."
+	text.TextColor3 = Color3.fromRGB(200, 196, 188)
+	text.TextSize = 24
+	text.Parent = black
 end

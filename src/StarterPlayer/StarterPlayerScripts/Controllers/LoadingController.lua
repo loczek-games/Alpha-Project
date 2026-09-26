@@ -75,7 +75,50 @@ function LoadingController:Init(controllers)
 end
 
 function LoadingController:Start()
-	self:_finishJoin()
+	local ok, err = pcall(function()
+		self:_finishJoin()
+	end)
+	if not ok then
+		warn("[LoadingController] join sequence failed:", err)
+		self:_removeJoinScreen(0.3)
+	end
+end
+
+-- Removes the ReplicatedFirst loading screen (also when it was never handed over).
+function LoadingController:_removeJoinScreen(time: number)
+	self.Loaded = true
+	local screen = shared.COC_LoadingScreen
+	shared.COC_LoadingScreen = nil
+	if screen then
+		pcall(function()
+			screen:FadeOut(time)
+		end)
+	end
+	local loadingGui = shared.COC_LoadingGui or player:WaitForChild("PlayerGui"):FindFirstChild("COC_Loading")
+	shared.COC_LoadingGui = nil
+	if loadingGui then
+		task.delay(time + 0.1, function()
+			loadingGui:Destroy()
+		end)
+	end
+end
+
+-- Runs `fn` but gives up waiting after `seconds` (PreloadAsync can stall on
+-- slow or blocked assets; loading must never hang on it).
+local function withTimeout(seconds: number, fn: () -> ()): (boolean, any)
+	local done, ok, err = false, true, nil
+	task.spawn(function()
+		ok, err = pcall(fn)
+		done = true
+	end)
+	local deadline = os.clock() + seconds
+	while not done and os.clock() < deadline do
+		task.wait(0.1)
+	end
+	if not done then
+		return false, "timed out after " .. seconds .. " s"
+	end
+	return ok, err
 end
 
 ---------------------------------------------------------------------------
@@ -84,7 +127,6 @@ end
 
 function LoadingController:_finishJoin()
 	local screen = shared.COC_LoadingScreen
-	local loadingGui = shared.COC_LoadingGui
 	local function status(text: string, progress: number)
 		if screen and screen.Alive ~= nil then
 			screen:SetStatus(text)
@@ -129,7 +171,7 @@ function LoadingController:_finishJoin()
 	}
 	for index, step in ipairs(steps) do
 		status(step[1], 0.4 + 0.5 * (index - 1) / #steps)
-		local ok, err = pcall(step[2])
+		local ok, err = withTimeout(8, step[2])
 		if not ok then
 			warn("[LoadingController] preload step failed:", step[1], err)
 		end
@@ -141,16 +183,7 @@ function LoadingController:_finishJoin()
 	end
 	status("READY", 1)
 	task.wait(0.4)
-	self.Loaded = true
-	if screen then
-		screen:FadeOut(1.1)
-	end
-	if loadingGui then
-		task.delay(1.2, function()
-			loadingGui:Destroy()
-		end)
-	end
-	shared.COC_LoadingScreen = nil
+	self:_removeJoinScreen(1.1)
 end
 
 ---------------------------------------------------------------------------

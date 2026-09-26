@@ -23,7 +23,6 @@
 	record.Model to a map object (use VisibilityRoot for those).
 ]]
 
-local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -71,13 +70,8 @@ function AnomalyService:Init(services)
 	Kit.Appearance = Appearance
 	Appearance:Init(services)
 
-	-- anomalies never collide with (push, block, trap) investigators
-	pcall(function()
-		PhysicsService:RegisterCollisionGroup(Kit.CollisionGroup)
-		PhysicsService:RegisterCollisionGroup("COCPlayer")
-		PhysicsService:CollisionGroupSetCollidable(Kit.CollisionGroup, "COCPlayer", false)
-		PhysicsService:CollisionGroupSetCollidable(Kit.CollisionGroup, Kit.CollisionGroup, false)
-	end)
+	-- collision groups (COCAnomaly never collides with COCPlayer) are
+	-- registered by CharacterService:Init, before any character spawns
 
 	-- Invisible markers that let client equipment (thermal scanner, camera
 	-- autofocus glitches, UV, "silence before an encounter") sense anomalies.

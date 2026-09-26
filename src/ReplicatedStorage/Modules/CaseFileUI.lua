@@ -53,7 +53,9 @@ local function label(parent: Instance, text: string, props: { [string]: any }): 
 		Parent = parent,
 	}
 	for key, value in pairs(props) do
-		defaults[key] = value
+		if key ~= "MaxTextSize" then -- consumed below (not a TextLabel property)
+			defaults[key] = value
+		end
 	end
 	local result = new("TextLabel", defaults)
 	new("UITextSizeConstraint", { MaxTextSize = props.MaxTextSize or 28, Parent = result })

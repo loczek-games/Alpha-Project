@@ -535,6 +535,183 @@ if #unset > 0 then
 end
 
 ---------------------------------------------------------------------------
+section("Instance properties set through helper tables")
+---------------------------------------------------------------------------
+-- Helpers such as UIKit.new("TextLabel", { ... }) assign every key of a table
+-- to a new instance through an `any` cast, so the type checker cannot see a
+-- misspelled or non-existent property. Roblox throws at runtime ("X is not a
+-- valid member of TextLabel") - here every key is checked against the API.
+
+local reflection = roblox.getReflectionDatabase()
+
+local function hasProperty(className: string, property: string): boolean?
+	local class = reflection:GetClass(className)
+	if not class then
+		return nil
+	end
+	while class do
+		if class.Properties[property] then
+			return true
+		end
+		class = class.Superclass and reflection:GetClass(class.Superclass)
+	end
+	return false
+end
+
+-- keys at depth 1 of the table literal starting at `open` (index of "{")
+local function tableKeys(source: string, open: number): ({ string }, number)
+	local keys = {}
+	local depth = 0
+	local i = open
+	local length = #source
+	while i <= length do
+		local c = string.sub(source, i, i)
+		if c == '"' or c == "'" then
+			local close = i + 1
+			while close <= length and string.sub(source, close, close) ~= c do
+				if string.sub(source, close, close) == "\\" then
+					close += 1
+				end
+				close += 1
+			end
+			i = close
+		elseif c == "-" and string.sub(source, i, i + 1) == "--" then
+			local close = string.find(source, "\n", i, true) or length
+			i = close
+		elseif c == "{" or c == "(" or c == "[" then
+			depth += 1
+			if depth == 2 and c == "{" and false then
+				break
+			end
+		elseif c == "}" or c == ")" or c == "]" then
+			depth -= 1
+			if depth == 0 then
+				return keys, i
+			end
+		elseif depth == 1 then
+			local key, rest = string.match(source, "^([%a_][%w_]*)%s*=([^=])", i)
+			local before = string.sub(source, i - 1, i - 1)
+			if key and rest and not string.match(before, "[%w_%.]") then
+				table.insert(keys, key)
+				i += #key - 1
+			end
+		end
+		i += 1
+	end
+	return keys, length
+end
+
+-- call pattern -> class (nil = first string argument) + keys the helper consumes itself
+local HELPERS = {
+	{ Pattern = "UIKit%.new%(%s*\"(%w+)\"%s*,%s*{", Class = nil },
+	{ Pattern = "[^%w_%.]new%(%s*\"(%w+)\"%s*,%s*{", Class = nil },
+	{ Pattern = "UIKit%.Label%(%s*{", Class = "TextLabel" },
+	{ Pattern = "UIKit%.Frame%(%s*{", Class = "Frame" },
+	{ Pattern = "UIKit%.Card%(%s*{", Class = "Frame" },
+	{ Pattern = "UIKit%.Button%(%s*{", Class = "TextButton", Skip = { CornerRadius = true, NoStroke = true } },
+	{ Pattern = "[^%w_%.]label%([^{}]-,%s*{", Class = "TextLabel", Skip = { MaxTextSize = true }, Files = { "CaseFileUI" } },
+	{ Pattern = "[^%w_%.]frame%([^{}]-,%s*{", Class = "Frame", Files = { "JumpscareController" } },
+	{ Pattern = "Kit%.Part%([^{}]-,%s*{", Class = "Part" },
+}
+
+local checkedCalls, badProperties = 0, 0
+for _, file in listFiles("src") do
+	local source = fs.readFile(file)
+	for _, helper in HELPERS do
+		if helper.Files then
+			local match = false
+			for _, name in helper.Files do
+				if string.find(file, name, 1, true) then
+					match = true
+				end
+			end
+			if not match then
+				continue
+			end
+		end
+		local start = 1
+		while true do
+			local first, last, captured = string.find(source, helper.Pattern, start)
+			if not first then
+				break
+			end
+			start = last + 1
+			local className = helper.Class or captured
+			local keys = tableKeys(source, last)
+			checkedCalls += 1
+			local line = select(2, string.gsub(string.sub(source, 1, first), "\n", "")) + 1
+			for _, key in keys do
+				if key == "Parent" or (helper.Skip and helper.Skip[key]) then
+					continue
+				end
+				local has = hasProperty(className, key)
+				if has == nil then
+					warn(string.format("%s:%d unknown class %s", file, line, className))
+					break
+				elseif not has then
+					badProperties += 1
+					fail(string.format("%s:%d  %s has no property '%s'", string.gsub(file, "^src/", ""), line, className, key))
+				end
+			end
+		end
+	end
+end
+-- LightingController presets are applied key by key too
+do
+	local source = fs.readFile("src/StarterPlayer/StarterPlayerScripts/Controllers/LightingController.lua")
+	local targets = { Lighting = "Lighting", Atmosphere = "Atmosphere", Grade = "ColorCorrectionEffect", Glow = "BloomEffect" }
+	for name, className in targets do
+		local start = 1
+		while true do
+			local first, last = string.find(source, "\n%s*" .. name .. " = {", start)
+			if not first then
+				break
+			end
+			start = last + 1
+			checkedCalls += 1
+			for _, key in (tableKeys(source, last)) do
+				if not hasProperty(className, key) then
+					badProperties += 1
+					fail(string.format("LightingController preset %s has no property '%s'", className, key))
+				end
+			end
+		end
+	end
+end
+if badProperties == 0 then
+	ok(string.format("%d helper-built instances only set real properties", checkedCalls))
+end
+
+---------------------------------------------------------------------------
+section("UI built at join")
+---------------------------------------------------------------------------
+-- Instances from @lune/roblox reject unknown properties exactly like Roblox,
+-- so building the screens here catches errors that would leave players on a
+-- black loading screen.
+
+do
+	local CaseFileUI = loader.load("ReplicatedStorage/Modules/CaseFileUI")
+	local map = MapConfig.Maps.DeadMall
+	local holder = roblox.Instance.new("Frame")
+	local built, result = pcall(CaseFileUI.new, holder, {
+		Case = map.Case,
+		Name = map.Name,
+		Location = map.Location,
+		Status = map.Status,
+		LastActivity = map.LastActivity,
+		Danger = map.Danger,
+		Tip = "test",
+		Headline = "LOADING INVESTIGATION",
+	})
+	if built then
+		result.Alive = false
+		ok("CaseFileUI loading screen builds (" .. #holder:GetDescendants() .. " instances)")
+	else
+		fail("CaseFileUI.new errors - the loading screen would stay black: " .. tostring(result))
+	end
+end
+
+---------------------------------------------------------------------------
 
 print(string.format("\n%d checks passed, %d warnings, %d errors", passed, warnings, errors))
 if errors > 0 then

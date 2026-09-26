@@ -54,14 +54,24 @@ task.spawn(function()
 	end
 end)
 
+-- one broken controller must not take the whole client (and the loading
+-- screen) down with it
 local controllers = {}
 for _, name in ipairs(ORDER) do
-	controllers[name] = require(Controllers:WaitForChild(name))
+	local module = Controllers:WaitForChild(name, 10)
+	local ok, result = pcall(function()
+		return require(module :: ModuleScript)
+	end)
+	if ok and type(result) == "table" then
+		controllers[name] = result
+	else
+		warn(string.format("[ClientMain] %s failed to load: %s", name, tostring(result)))
+	end
 end
 
 for _, name in ipairs(ORDER) do
 	local controller = controllers[name]
-	if controller.Init then
+	if controller and controller.Init then
 		local ok, err = pcall(controller.Init, controller, controllers)
 		if not ok then
 			warn(string.format("[ClientMain] %s:Init failed: %s", name, tostring(err)))
@@ -71,7 +81,7 @@ end
 
 for _, name in ipairs(ORDER) do
 	local controller = controllers[name]
-	if controller.Start then
+	if controller and controller.Start then
 		task.spawn(function()
 			local ok, err = pcall(controller.Start, controller)
 			if not ok then

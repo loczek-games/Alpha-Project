@@ -79,6 +79,7 @@ loadModule = function(path: string): any
 		end
 		error("[bake] unsupported require target")
 	end
+	env.task = require("@lune/task")
 	env.warn = function(...)
 		print("[warn]", ...)
 	end

@@ -19,6 +19,7 @@
 	  * VIP name tag and stream-safe teleports.
 ]]
 
+local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -57,6 +58,20 @@ local ANIMATE_SLOTS = {
 
 function CharacterService:Init(services)
 	self.Services = services
+	-- anomalies (AnomalyKit.CollisionGroup) never collide with (push, block,
+	-- trap) investigators. Registered here, before any character can spawn.
+	local ok, err = pcall(function()
+		for _, group in ipairs({ "COCPlayer", "COCAnomaly" }) do
+			if not PhysicsService:IsCollisionGroupRegistered(group) then
+				PhysicsService:RegisterCollisionGroup(group)
+			end
+		end
+		PhysicsService:CollisionGroupSetCollidable("COCAnomaly", "COCPlayer", false)
+		PhysicsService:CollisionGroupSetCollidable("COCAnomaly", "COCAnomaly", false)
+	end)
+	if not ok then
+		warn("[CharacterService] collision groups:", err)
+	end
 	self.DownedRemote = Net.Event("PlayerDowned")
 	Players.PlayerAdded:Connect(function(player)
 		self:_watchPlayer(player)
