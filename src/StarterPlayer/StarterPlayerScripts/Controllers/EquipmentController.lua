@@ -102,19 +102,21 @@ function EquipmentController:Init(controllers)
 	controllers.ClientState.DataChanged:Connect(function()
 		self:_buildSlots()
 	end)
-	-- equipment belongs to missions: the hotbar is hidden at HQ
+	-- usable everywhere: at HQ too (photos only count during investigations,
+	-- batteries only drain on missions); hidden inside the Dark Room gallery
 	local function refreshVisibility()
-		self.Hotbar.Visible = controllers.ClientState:IsInMission()
+		self.Hotbar.Visible = not controllers.ClientState.InDarkRoom
 	end
 	controllers.ClientState.RoundChanged:Connect(refreshVisibility)
+	controllers.ClientState.DarkRoomChanged:Connect(refreshVisibility)
 	refreshVisibility()
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then
+		if gameProcessed or controllers.ClientState.InDarkRoom then
 			return
 		end
 		local index = KEYS[input.KeyCode]
-		if index and controllers.ClientState:IsInMission() then
+		if index then
 			self:SelectSlot(index)
 		end
 	end)
@@ -210,6 +212,7 @@ function EquipmentController:_buildSlots()
 			BackgroundColor3 = theme.Bg,
 			BackgroundTransparency = 0.25,
 			CornerRadius = 14,
+			NoStroke = true, -- the selection stroke below is the only one
 			Parent = self.Hotbar,
 		}, function()
 			self:SelectSlot(index)
@@ -278,6 +281,14 @@ function EquipmentController:SelectItem(itemId: string)
 	end
 	local tool = backpack:FindFirstChild(itemId)
 	if not tool or not tool:IsA("Tool") then
+		if self.Equipped == itemId and not player:GetAttribute("InMission") then
+			-- same slot again at HQ: put it away
+			local held = EquipmentConfig.Get(itemId)
+			if held then
+				self.Controllers.AudioController:Play(held.Sounds .. ".Unequip", nil)
+			end
+			humanoid:UnequipTools()
+		end
 		return -- already in hand (or not owned)
 	end
 	local audio = self.Controllers.AudioController

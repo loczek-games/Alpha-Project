@@ -495,7 +495,50 @@ for id, item in EquipmentConfig.Items do
 	elseif not model then
 		warn("no 3D model for equipment " .. id)
 	else
-		passed += 1
+		-- a Tool can only be held when it has a "Handle" part and everything
+		-- else is welded to it (EquipmentService moves these parts into the Tool)
+		local tool = roblox.Instance.new("Tool")
+		tool.RequiresHandle = true
+		tool.CanBeDropped = false
+		tool.ManualActivationOnly = true
+		for _, child in model:GetChildren() do
+			child.Parent = tool
+		end
+		local handle = tool:FindFirstChild("Handle")
+		-- (Lune hands out a new wrapper per property read: compare with ==)
+		local welded = {}
+		for _, d in tool:GetDescendants() do
+			if d:IsA("WeldConstraint") and d.Part0 == handle and d.Part1 then
+				table.insert(welded, d.Part1)
+			end
+		end
+		local function isWelded(part: any): boolean
+			for _, other in welded do
+				if other == part then
+					return true
+				end
+			end
+			return false
+		end
+		local problems = {}
+		if not handle or not handle:IsA("BasePart") then
+			table.insert(problems, "no Handle part")
+		end
+		for _, d in tool:GetDescendants() do
+			if d:IsA("BasePart") then
+				if d.Anchored then
+					table.insert(problems, d.Name .. " is anchored")
+				end
+				if d ~= handle and not isWelded(d) then
+					table.insert(problems, d.Name .. " is not welded to Handle")
+				end
+			end
+		end
+		if #problems > 0 then
+			fail("equipment tool " .. id .. " cannot be held: " .. table.concat(problems, ", "))
+		else
+			passed += 1
+		end
 	end
 end
 for id, skin in CosmeticsConfig.Skins do

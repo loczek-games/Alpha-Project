@@ -181,7 +181,10 @@ function ViewmodelController:_sync()
 	end
 	clone:Destroy()
 	for _, descendant in ipairs(item:GetDescendants()) do
-		if descendant:IsA("Light") or descendant:IsA("BaseScript") or descendant:IsA("Sound") then
+		if descendant:IsA("Light") and descendant.Name == "Beam" then
+			-- the torch beam follows the camera (see _syncBeam)
+			descendant.Enabled = false
+		elseif descendant:IsA("Light") or descendant:IsA("BaseScript") or descendant:IsA("Sound") then
 			descendant:Destroy()
 		elseif descendant:IsA("BasePart") then
 			descendant.CastShadow = false
@@ -219,13 +222,45 @@ function ViewmodelController:_sync()
 	self.RealTool = tool
 	self.EquipAlpha = 0
 	self.Display = item:FindFirstChild("Display", true)
+	local beam = item:FindFirstChild("Beam", true)
+	self.Beam = if beam and beam:IsA("SpotLight") then beam else nil
 	self:_hideRealTool(tool, true)
+end
+
+-- Flashlight / UV light in first person: the hand-held beam points where the
+-- arm points, not where you look. For your own view the viewmodel's beam
+-- (which follows the camera) takes over; the server still decides on/off and
+-- flicker through the real beam, which everyone else keeps seeing.
+function ViewmodelController:_syncBeam()
+	local beam = self.Beam
+	local real = self.RealTool and self.RealTool:FindFirstChild("Beam", true)
+	if not beam or not real or not real:IsA("SpotLight") then
+		return
+	end
+	local base = real:GetAttribute("BaseBrightness")
+	local brightness = if type(base) == "number" then base else 2
+	beam.Enabled = real.Enabled
+	beam.Brightness = brightness
+	beam.Range = real.Range
+	beam.Angle = real.Angle
+	beam.Color = real.Color
+	beam.Shadows = true
+	-- local only: the server never changes Brightness after building the tool
+	if real.Brightness ~= 0 then
+		real.Brightness = 0
+	end
 end
 
 function ViewmodelController:_destroy()
 	if self.RealTool and self.RealTool.Parent then
 		self:_hideRealTool(self.RealTool, false)
+		local real = self.RealTool:FindFirstChild("Beam", true)
+		if real and real:IsA("SpotLight") then
+			local base = real:GetAttribute("BaseBrightness")
+			real.Brightness = if type(base) == "number" then base else 2
+		end
 	end
+	self.Beam = nil
 	if self.Model then
 		self.Model:Destroy()
 	end
@@ -264,6 +299,9 @@ function ViewmodelController:_render(dt: number)
 	local visible = not fp:IsSuspended() and player:GetAttribute("Downed") ~= true
 	if not visible then
 		model.Parent = nil
+		if self.Beam then
+			self.Beam.Enabled = false
+		end
 		return
 	elseif model.Parent ~= camera then
 		model.Parent = camera
@@ -340,6 +378,7 @@ function ViewmodelController:_render(dt: number)
 		end
 	end
 
+	self:_syncBeam()
 	self:_updateScreens()
 end
 

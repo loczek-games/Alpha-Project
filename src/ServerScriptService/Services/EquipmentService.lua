@@ -311,7 +311,8 @@ function EquipmentService:RefreshTools(player: Player)
 	self:_applyGoggles(player)
 end
 
--- Equipment is for investigations: put it away at HQ, camera in hand on deployment.
+-- Deploying puts the camera in your hand; returning to HQ switches everything
+-- off and empties your hands (you can pick items up again at HQ).
 function EquipmentService:OnMissionMode(player: Player, inMission: boolean)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -598,9 +599,13 @@ function EquipmentService:_tick(dt: number)
 		if not player:IsDescendantOf(Players) then
 			continue
 		end
-		-- battery drain (once per second)
+		-- battery drain (once per second, only while investigating: HQ is safe)
 		state.DrainTimer += dt
-		if state.DrainTimer >= 1 then
+		local mission = self.Services.MissionService
+		local investigating = mission ~= nil and mission:IsInvestigating(player)
+		if state.DrainTimer >= 1 and not investigating then
+			state.DrainTimer = 0
+		elseif state.DrainTimer >= 1 then
 			local elapsed = state.DrainTimer
 			state.DrainTimer = 0
 			local changed = false

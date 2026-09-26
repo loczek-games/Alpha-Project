@@ -162,7 +162,11 @@ function PhotoController:Init(controllers)
 		self.PromptsShown = math.max(0, self.PromptsShown - 1)
 	end)
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or UIKit.IsAnyPanelOpen() or not controllers.ClientState:IsInMission() then
+		if gameProcessed or UIKit.IsAnyPanelOpen() or controllers.ClientState.InDarkRoom then
+			return
+		end
+		-- at HQ the mouse / E only act while you hold an item
+		if not controllers.ClientState:IsInMission() and not controllers.EquipmentController.Equipped then
 			return
 		end
 		local key = input.KeyCode
@@ -179,6 +183,9 @@ function PhotoController:Init(controllers)
 		self:_refreshButton(itemId)
 	end)
 	controllers.ClientState.RoundChanged:Connect(function()
+		self:_layout()
+	end)
+	controllers.ClientState.DarkRoomChanged:Connect(function()
 		self:_layout()
 	end)
 
@@ -262,9 +269,10 @@ function PhotoController:_refreshButton(itemId: string?)
 		self.ButtonCaption.Text = item.ActionLabel .. (if on then " ON" else "")
 		self.ButtonInner.BackgroundColor3 = if on then Color3.fromRGB(230, 170, 40) else Color3.fromRGB(70, 70, 90)
 	end
-	local inMission = self.Controllers.ClientState:IsInMission()
-	self.Button.Visible = inMission
-	self.ZoomButton.Visible = inMission and self.Touch == true and itemId == "Camera"
+	local state = self.Controllers.ClientState
+	local usable = not state.InDarkRoom and (state:IsInMission() or item ~= nil)
+	self.Button.Visible = usable
+	self.ZoomButton.Visible = usable and self.Touch == true and itemId == "Camera"
 	if itemId ~= "Camera" and self.Zoomed then
 		self:ToggleZoom(true)
 	end
