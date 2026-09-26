@@ -1,0 +1,701 @@
+--[[
+	EquipmentService (ModuleScript)
+	Location: ServerScriptService/Services/EquipmentService
+
+	Physical, audible equipment.
+	  * Hand items (Camera, Flashlight, EMF, Thermal, UV Light) are real Tools,
+	    so characters visibly hold them and equip/unequip has feedback.
+	  * Night Vision is worn (goggles appear on the head while on).
+	  * Batteries drain while items are on; photos cost camera battery.
+	  * Dangerous anomalies make lights buzz, flicker and sometimes fail.
+	  * EMF level is computed here and replicated through tool attributes so
+	    every nearby player hears/sees the same beeping.
+	  * Every toggle / click can become world noise (NoiseService).
+	The client can only REQUEST actions (EquipmentAction); everything is
+	validated here.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Config = ReplicatedStorage:WaitForChild("Config")
+local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
+local CameraConfig = require(Config:WaitForChild("CameraConfig"))
+local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
+
+local EquipmentService = {}
+EquipmentService.State = {}
+
+local TOGGLE_SOUNDS = {
+	Flashlight = { On = "Flashlight.On", Off = "Flashlight.Off", Click = "Flashlight.ButtonClick" },
+	UVLight = { On = "UV.On", Off = "UV.Off", Click = "UV.Off" },
+	EMF = { On = "EMF.PowerOn", Off = "EMF.PowerOff", Click = "EMF.PowerOff" },
+	Thermal = { On = "Thermal.Activate", Off = "Thermal.Shutdown", Click = "Thermal.Shutdown" },
+	NightVision = { On = "NightVision.PowerOn", Off = "NightVision.PowerOff", Click = "NightVision.PowerOff" },
+}
+local LIGHT_ITEMS = { Flashlight = true, UVLight = true }
+
+---------------------------------------------------------------------------
+-- Tool construction
+---------------------------------------------------------------------------
+
+local function prop(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.CFrame = cframe
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Shape = shape or Enum.PartType.Block
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Massless = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = parent
+	return p
+end
+
+local function weldAll(tool: Tool, handle: BasePart)
+	for _, child in ipairs(tool:GetChildren()) do
+		if child:IsA("BasePart") and child ~= handle then
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = handle
+			weld.Part1 = child
+			weld.Parent = child
+		end
+	end
+end
+
+-- Builders place the handle at the origin, device front = -Z, up = +Y.
+local BUILDERS = {}
+
+function BUILDERS.Camera(tool: Tool, skin)
+	local handle = prop(tool, "Handle", Vector3.new(1.1, 0.72, 0.5), CFrame.new(), skin.Body, skin.Material)
+	prop(tool, "Lens", Vector3.new(0.35, 0.5, 0.5), CFrame.new(0, -0.02, -0.4) * CFrame.Angles(0, math.pi / 2, 0), skin.Accent, Enum.Material.Metal, Enum.PartType.Cylinder)
+	prop(tool, "Glass", Vector3.new(0.05, 0.38, 0.38), CFrame.new(0, -0.02, -0.59) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(40, 60, 90), Enum.Material.Glass, Enum.PartType.Cylinder)
+	local bulb = prop(tool, "FlashBulb", Vector3.new(0.3, 0.16, 0.08), CFrame.new(0.32, 0.26, -0.27), Color3.fromRGB(240, 240, 255), Enum.Material.Neon)
+	prop(tool, "Button", Vector3.new(0.18, 0.08, 0.18), CFrame.new(-0.3, 0.39, 0), Color3.fromRGB(220, 60, 60))
+	local flash = Instance.new("PointLight")
+	flash.Name = "Flash"
+	flash.Enabled = false
+	flash.Brightness = 8
+	flash.Range = 18
+	flash.Color = Color3.fromRGB(235, 240, 255)
+	flash.Shadows = false
+	flash.Parent = bulb
+	return handle
+end
+
+local function buildTorch(tool: Tool, bodyColor: Color3, lensColor: Color3, lightConfig)
+	local handle = prop(tool, "Handle", Vector3.new(0.42, 0.42, 1.5), CFrame.new(), bodyColor, Enum.Material.Metal)
+	prop(tool, "Head", Vector3.new(0.45, 0.66, 0.66), CFrame.new(0, 0, -0.95) * CFrame.Angles(0, math.pi / 2, 0), bodyColor, Enum.Material.Metal, Enum.PartType.Cylinder)
+	prop(tool, "Lens", Vector3.new(0.06, 0.55, 0.55), CFrame.new(0, 0, -1.2) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(70, 70, 75), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder):SetAttribute("OnColor", lensColor)
+	prop(tool, "Switch", Vector3.new(0.14, 0.08, 0.22), CFrame.new(0, 0.23, -0.2), Color3.fromRGB(30, 30, 30))
+	local beam = Instance.new("SpotLight")
+	beam.Name = "Beam"
+	beam.Face = Enum.NormalId.Front
+	beam.Enabled = false
+	beam.Brightness = lightConfig.Brightness
+	beam.Range = lightConfig.Range
+	beam.Angle = lightConfig.Angle
+	beam.Color = lightConfig.Color
+	beam.Shadows = false
+	beam.Parent = handle
+	return handle
+end
+
+function BUILDERS.Flashlight(tool: Tool)
+	return buildTorch(tool, Color3.fromRGB(35, 35, 40), Color3.fromRGB(255, 245, 215), EquipmentConfig.Items.Flashlight.Light)
+end
+
+function BUILDERS.UVLight(tool: Tool)
+	return buildTorch(tool, Color3.fromRGB(45, 25, 70), Color3.fromRGB(170, 90, 255), EquipmentConfig.Items.UVLight.Light)
+end
+
+function BUILDERS.EMF(tool: Tool)
+	local handle = prop(tool, "Handle", Vector3.new(0.7, 1.2, 0.28), CFrame.new(), Color3.fromRGB(230, 200, 40))
+	prop(tool, "Face", Vector3.new(0.6, 0.55, 0.05), CFrame.new(0, 0.2, -0.16), Color3.fromRGB(20, 20, 22))
+	local colors = {
+		Color3.fromRGB(80, 255, 90),
+		Color3.fromRGB(170, 255, 70),
+		Color3.fromRGB(255, 230, 60),
+		Color3.fromRGB(255, 150, 40),
+		Color3.fromRGB(255, 50, 40),
+	}
+	for index = 1, 5 do
+		local led = prop(tool, "LED" .. index, Vector3.new(0.09, 0.09, 0.05), CFrame.new(-0.24 + (index - 1) * 0.12, 0.38, -0.19), Color3.fromRGB(40, 40, 40))
+		led:SetAttribute("OnColor", colors[index])
+	end
+	prop(tool, "Antenna", Vector3.new(0.07, 0.55, 0.07), CFrame.new(0.26, 0.85, 0), Color3.fromRGB(30, 30, 30))
+	return handle
+end
+
+function BUILDERS.Thermal(tool: Tool)
+	local handle = prop(tool, "Handle", Vector3.new(0.85, 0.85, 0.55), CFrame.new(), Color3.fromRGB(60, 62, 70))
+	prop(tool, "Screen", Vector3.new(0.65, 0.45, 0.05), CFrame.new(0, 0.12, 0.29), Color3.fromRGB(255, 110, 40), Enum.Material.Neon)
+	prop(tool, "Lens", Vector3.new(0.3, 0.42, 0.42), CFrame.new(0, 0.1, -0.4) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(20, 20, 20), Enum.Material.Glass, Enum.PartType.Cylinder)
+	prop(tool, "Grip", Vector3.new(0.3, 0.6, 0.35), CFrame.new(0, -0.62, 0.05), Color3.fromRGB(35, 35, 40))
+	return handle
+end
+
+---------------------------------------------------------------------------
+-- Lifecycle
+---------------------------------------------------------------------------
+
+function EquipmentService:Init(services)
+	self.Services = services
+	self.StateRemote = Net.Event("EquipmentState")
+	self._lastAction = {}
+
+	Net.Event("EquipmentAction").OnServerEvent:Connect(function(player, action, argument)
+		local ok, err = pcall(function()
+			self:_onAction(player, action, argument)
+		end)
+		if not ok then
+			warn("[EquipmentService] action error:", err)
+		end
+	end)
+
+	local function watch(player: Player)
+		-- tools themselves are (re)built by CharacterService -> RefreshTools
+		player.CharacterAdded:Connect(function()
+			local state = self:_state(player)
+			for itemId in pairs(state.On) do
+				state.On[itemId] = false
+			end
+			state.FailingUntil = 0
+			self:_push(player)
+		end)
+	end
+	Players.PlayerAdded:Connect(watch)
+	for _, player in ipairs(Players:GetPlayers()) do
+		watch(player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		self.State[player] = nil
+		self._lastAction[player] = nil
+	end)
+	services.DataService:OnClientReady(function(player)
+		self:_push(player)
+	end)
+
+	local accumulator = 0
+	RunService.Heartbeat:Connect(function(dt)
+		accumulator += dt
+		if accumulator < 0.2 then
+			return
+		end
+		local step = accumulator
+		accumulator = 0
+		self:_tick(step)
+	end)
+end
+
+function EquipmentService:_state(player: Player)
+	local state = self.State[player]
+	if not state then
+		state = {
+			Battery = {},
+			On = {},
+			EquippedAt = 0,
+			Toggles = {},
+			FailingUntil = 0,
+			LastMalfunctionNoise = 0,
+			LastFocus = 0,
+			DrainTimer = 0,
+			NoiseTimer = 0,
+		}
+		for id, item in pairs(EquipmentConfig.Items) do
+			state.Battery[id] = item.Battery.Capacity
+			state.On[id] = false
+		end
+		self.State[player] = state
+	end
+	return state
+end
+
+function EquipmentService:Owns(player: Player, itemId: string): boolean
+	local item = EquipmentConfig.Get(itemId)
+	if not item then
+		return false
+	end
+	if item.Price == 0 then
+		return true
+	end
+	local data = self.Services.DataService:GetData(player)
+	return data ~= nil and data.OwnedEquipment ~= nil and data.OwnedEquipment[itemId] == true
+end
+
+function EquipmentService:GetEquippedTool(player: Player): Tool?
+	local character = player.Character
+	if not character then
+		return nil
+	end
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Tool") and child:GetAttribute("COCEquipment") then
+			return child
+		end
+	end
+	return nil
+end
+
+-- Finds the tool whether it is held or sitting in the backpack.
+function EquipmentService:FindTool(player: Player, itemId: string): Tool?
+	local containers: { Instance? } = { player.Character, player:FindFirstChildOfClass("Backpack") }
+	for _, container in ipairs(containers) do
+		if container then
+			local tool = container:FindFirstChild(itemId)
+			if tool and tool:IsA("Tool") and tool:GetAttribute("COCEquipment") then
+				return tool
+			end
+		end
+	end
+	return nil
+end
+
+function EquipmentService:IsEquipped(player: Player, itemId: string): boolean
+	local tool = self:GetEquippedTool(player)
+	return tool ~= nil and tool.Name == itemId
+end
+
+function EquipmentService:IsOn(player: Player, itemId: string): boolean
+	local state = self.State[player]
+	return state ~= nil and state.On[itemId] == true
+end
+
+function EquipmentService:GetHandle(player: Player, itemId: string): BasePart?
+	local tool = self:GetEquippedTool(player)
+	if tool and tool.Name == itemId then
+		local handle = tool:FindFirstChild("Handle")
+		if handle and handle:IsA("BasePart") then
+			return handle
+		end
+	end
+	return nil
+end
+
+function EquipmentService:_cameraSkin(player: Player)
+	local economy = self.Services.EconomyService
+	local cameraId = if economy then economy:GetEquippedCameraId(player) else CameraConfig.DefaultCamera
+	local def = CameraConfig.Get(cameraId) or CameraConfig.Get(CameraConfig.DefaultCamera)
+	if player:GetAttribute("VIP") then
+		local skin = CameraConfig.Skins.VIP
+		return { Body = skin.BodyColor, Accent = skin.AccentColor, Material = skin.Material }
+	end
+	return { Body = def.BodyColor, Accent = def.AccentColor, Material = Enum.Material.SmoothPlastic }
+end
+
+-- (Re)builds the player's equipment tools. Keeps the currently held item in hand.
+function EquipmentService:RefreshTools(player: Player)
+	local character = player.Character
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not character or not backpack or not humanoid then
+		return
+	end
+	local held = self:GetEquippedTool(player)
+	local heldId = if held then held.Name else "Camera"
+	for _, container in ipairs({ backpack, character }) do
+		for _, child in ipairs(container:GetChildren()) do
+			if child:IsA("Tool") and child:GetAttribute("COCEquipment") then
+				child:Destroy()
+			end
+		end
+	end
+
+	local toEquip = nil
+	for _, item in ipairs(EquipmentConfig.GetSorted()) do
+		if item.Wearable or not self:Owns(player, item.Id) then
+			continue
+		end
+		local tool = Instance.new("Tool")
+		tool.Name = item.Id
+		tool.ToolTip = item.Name
+		tool.RequiresHandle = true
+		tool.CanBeDropped = false
+		tool.ManualActivationOnly = true
+		tool.Grip = CFrame.new(0, -0.1, 0.25)
+		tool:SetAttribute("COCEquipment", true)
+		tool:SetAttribute("On", false)
+		local handle = BUILDERS[item.Id](tool, self:_cameraSkin(player))
+		weldAll(tool, handle)
+		self:_wireTool(player, tool, item)
+		tool.Parent = backpack
+		if item.Id == heldId then
+			toEquip = tool
+		end
+	end
+	if toEquip then
+		humanoid:EquipTool(toEquip)
+	end
+	self:_applyGoggles(player)
+end
+
+function EquipmentService:_wireTool(player: Player, tool: Tool, item)
+	local audio = self.Services.AudioService
+	tool.Equipped:Connect(function()
+		local state = self:_state(player)
+		state.EquippedAt = os.clock()
+		-- the owner already heard this locally; everyone else hears it in 3D
+		audio:Play(item.Sounds .. ".Equip", tool:FindFirstChild("Handle"), { Exclude = player })
+	end)
+	tool.Unequipped:Connect(function()
+		local state = self.State[player]
+		if state and item.Toggle and state.On[item.Id] then
+			self:_setOn(player, item.Id, false, true)
+		end
+		audio:Play(item.Sounds .. ".Unequip", player.Character and player.Character:FindFirstChild("HumanoidRootPart"), { Exclude = player })
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Switching items on/off
+---------------------------------------------------------------------------
+
+function EquipmentService:_applyVisuals(player: Player, itemId: string)
+	local state = self:_state(player)
+	local on = state.On[itemId] == true
+	if itemId == "NightVision" then
+		self:_applyGoggles(player)
+		return
+	end
+	local tool = self:FindTool(player, itemId)
+	if not tool then
+		return
+	end
+	tool:SetAttribute("On", on)
+	if LIGHT_ITEMS[itemId] then
+		local handle = tool:FindFirstChild("Handle")
+		local beam = handle and handle:FindFirstChild("Beam")
+		local lens = tool:FindFirstChild("Lens")
+		local lit = on and os.clock() >= state.FailingUntil
+		if beam and beam:IsA("SpotLight") then
+			beam.Enabled = lit
+		end
+		if lens and lens:IsA("BasePart") then
+			lens.Material = if lit then Enum.Material.Neon else Enum.Material.SmoothPlastic
+			lens.Color = if lit then (lens:GetAttribute("OnColor") or Color3.new(1, 1, 1)) else Color3.fromRGB(70, 70, 75)
+		end
+	end
+	if not on then
+		tool:SetAttribute("EMFLevel", 0)
+		tool:SetAttribute("Interference", 0)
+	end
+end
+
+function EquipmentService:_applyGoggles(player: Player)
+	local character = player.Character
+	local head = character and character:FindFirstChild("Head")
+	if not head or not head:IsA("BasePart") then
+		return
+	end
+	local existing = head:FindFirstChild("NVGoggles")
+	local on = self:IsOn(player, "NightVision")
+	if not on then
+		if existing then
+			existing:Destroy()
+		end
+		return
+	end
+	if existing then
+		return
+	end
+	local goggles = Instance.new("Model")
+	goggles.Name = "NVGoggles"
+	for _, side in ipairs({ -1, 1 }) do
+		local tube = prop(goggles, "Tube", Vector3.new(0.35, 0.32, 0.32), head.CFrame * CFrame.new(side * 0.22, 0.15, -0.72) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(30, 34, 30), Enum.Material.Metal, Enum.PartType.Cylinder)
+		local lens = prop(goggles, "Lens", Vector3.new(0.04, 0.26, 0.26), head.CFrame * CFrame.new(side * 0.22, 0.15, -0.9) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(90, 255, 110), Enum.Material.Neon, Enum.PartType.Cylinder)
+		for _, part in ipairs({ tube, lens }) do
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = head
+			weld.Part1 = part
+			weld.Parent = part
+		end
+	end
+	goggles.Parent = head
+end
+
+function EquipmentService:_setOn(player: Player, itemId: string, on: boolean, quiet: boolean?)
+	local state = self:_state(player)
+	if state.On[itemId] == on then
+		return
+	end
+	state.On[itemId] = on
+	self:_applyVisuals(player, itemId)
+	local sounds = TOGGLE_SOUNDS[itemId]
+	if sounds and not quiet then
+		local where = self:GetHandle(player, itemId) or (player.Character and player.Character:FindFirstChild("Head"))
+		self.Services.AudioService:Play(if on then sounds.On else sounds.Off, where, { Source = player, Noise = 0 })
+		if itemId == "NightVision" and on then
+			self.Services.AudioService:Play("NightVision.Activation", where, {})
+		end
+	end
+	self:_push(player)
+end
+
+function EquipmentService:_lightNoise(player: Player, itemId: string, position: Vector3)
+	local state = self:_state(player)
+	local noise = EquipmentConfig.Items[itemId].Noise
+	local now = os.clock()
+	table.insert(state.Toggles, now)
+	while state.Toggles[1] and now - state.Toggles[1] > noise.RapidToggleWindow do
+		table.remove(state.Toggles, 1)
+	end
+	local rapid = #state.Toggles >= noise.RapidToggleCount
+	self.Services.NoiseService:Emit(position, if rapid then noise.Malfunction else noise.Toggle, if rapid then "FlashlightMalfunction" else "FlashlightClick", player)
+end
+
+function EquipmentService:_onAction(player: Player, action: any, argument: any)
+	if type(action) ~= "string" then
+		return
+	end
+	local now = os.clock()
+	if self._lastAction[player] and now - self._lastAction[player] < 0.12 then
+		return
+	end
+	self._lastAction[player] = now
+	local state = self:_state(player)
+	local audio = self.Services.AudioService
+
+	if action == "Toggle" then
+		if type(argument) ~= "string" then
+			return
+		end
+		local item = EquipmentConfig.Get(argument)
+		if not item or not item.Toggle or not self:Owns(player, argument) then
+			return
+		end
+		local where
+		if item.Wearable then
+			where = player.Character and player.Character:FindFirstChild("Head")
+		else
+			if not self:IsEquipped(player, argument) or now - state.EquippedAt < EquipmentConfig.EquipDelay * 0.8 then
+				return
+			end
+			where = self:GetHandle(player, argument)
+		end
+		if not where then
+			return
+		end
+		local turningOn = not state.On[argument]
+		if turningOn and state.Battery[argument] <= 0 then
+			-- click... nothing. Dead battery.
+			audio:Play(TOGGLE_SOUNDS[argument].Click, where, { Exclude = player })
+			self:_push(player)
+			return
+		end
+		if turningOn and LIGHT_ITEMS[argument] and now < state.FailingUntil then
+			-- CLICK ... nothing. Something nearby is killing the power.
+			audio:Play("Flashlight.ButtonClick", where, { Exclude = player })
+			audio:Play("Flashlight.Interference", where, {})
+			self.Services.NoiseService:Emit(where.Position, item.Noise.Malfunction, "FlashlightMalfunction", player)
+			return
+		end
+		self:_setOn(player, argument, turningOn)
+		if LIGHT_ITEMS[argument] then
+			self:_lightNoise(player, argument, where.Position)
+		end
+	elseif action == "Focus" or action == "FocusBroken" then
+		local handle = self:GetHandle(player, "Camera")
+		if not handle or now - state.LastFocus < (if action == "Focus" then 0.6 else 1.5) then
+			return
+		end
+		state.LastFocus = now
+		audio:Play(if action == "Focus" then "Camera.Focus" else "Camera.FocusBroken", handle, { Source = player, Exclude = player })
+	elseif action == "Zoom" then
+		local handle = self:GetHandle(player, "Camera")
+		if handle and (argument == "In" or argument == "Out") then
+			audio:Play(if argument == "In" then "Camera.ZoomIn" else "Camera.ZoomOut", handle, { Exclude = player })
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Batteries
+---------------------------------------------------------------------------
+
+function EquipmentService:ConsumeBattery(player: Player, itemId: string, amount: number): boolean
+	local state = self:_state(player)
+	if state.Battery[itemId] == nil or state.Battery[itemId] <= 0 then
+		return false
+	end
+	state.Battery[itemId] = math.max(0, state.Battery[itemId] - amount)
+	self:_push(player)
+	return true
+end
+
+function EquipmentService:DrainEquipped(player: Player, amount: number)
+	local tool = self:GetEquippedTool(player)
+	local itemId = if tool then tool.Name else "Camera"
+	local state = self:_state(player)
+	if state.Battery[itemId] then
+		state.Battery[itemId] = math.max(0, state.Battery[itemId] - amount)
+		if state.Battery[itemId] <= 0 and state.On[itemId] then
+			self:_setOn(player, itemId, false)
+		end
+		self:_push(player)
+	end
+end
+
+-- Battery pickup: recharges the owned item with the lowest battery.
+function EquipmentService:AddBattery(player: Player, amount: number): string?
+	local state = self:_state(player)
+	local lowestId, lowest = nil, math.huge
+	for _, item in ipairs(EquipmentConfig.GetSorted()) do
+		if self:Owns(player, item.Id) and state.Battery[item.Id] < lowest then
+			lowestId, lowest = item.Id, state.Battery[item.Id]
+		end
+	end
+	if not lowestId then
+		return nil
+	end
+	local capacity = EquipmentConfig.Items[lowestId].Battery.Capacity
+	state.Battery[lowestId] = math.min(capacity, state.Battery[lowestId] + amount)
+	self:_push(player)
+	return lowestId
+end
+
+function EquipmentService:ResetForRound()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local state = self:_state(player)
+		for id, item in pairs(EquipmentConfig.Items) do
+			state.Battery[id] = item.Battery.Capacity
+			if state.On[id] then
+				self:_setOn(player, id, false, true)
+			end
+		end
+		state.FailingUntil = 0
+		self:_push(player)
+	end
+end
+
+function EquipmentService:_push(player: Player)
+	if not player:IsDescendantOf(Players) then
+		return
+	end
+	local state = self:_state(player)
+	local battery = {}
+	for id, value in pairs(state.Battery) do
+		battery[id] = math.floor(value + 0.5)
+	end
+	self.StateRemote:FireClient(player, {
+		Battery = battery,
+		On = table.clone(state.On),
+		Failing = os.clock() < state.FailingUntil,
+	})
+end
+
+---------------------------------------------------------------------------
+-- Tick: drain, interference, EMF
+---------------------------------------------------------------------------
+
+function EquipmentService:_tick(dt: number)
+	local anomalies = self.Services.AnomalyService
+	local audio = self.Services.AudioService
+	local now = os.clock()
+	for player, state in pairs(self.State) do
+		if not player:IsDescendantOf(Players) then
+			continue
+		end
+		-- battery drain (once per second)
+		state.DrainTimer += dt
+		if state.DrainTimer >= 1 then
+			local elapsed = state.DrainTimer
+			state.DrainTimer = 0
+			local changed = false
+			for itemId, on in pairs(state.On) do
+				if on then
+					local drain = EquipmentConfig.Items[itemId].Battery.DrainPerSecond * elapsed
+					if drain > 0 then
+						state.Battery[itemId] = math.max(0, state.Battery[itemId] - drain)
+						changed = true
+						if state.Battery[itemId] <= 0 then
+							local where = self:GetHandle(player, itemId)
+							if LIGHT_ITEMS[itemId] and where then
+								audio:Play("Flashlight.BulbFailure", where, { Source = player, Noise = EquipmentConfig.Items[itemId].Noise.Broken })
+							end
+							self:_setOn(player, itemId, false, LIGHT_ITEMS[itemId] == true)
+						end
+					end
+				end
+			end
+			if changed then
+				self:_push(player)
+			end
+		end
+
+		-- lights: buzz, flicker and electrical failure near dangerous anomalies
+		for itemId in pairs(LIGHT_ITEMS) do
+			local tool = self:GetEquippedTool(player)
+			if not state.On[itemId] or not tool or tool.Name ~= itemId then
+				continue
+			end
+			local handle = tool:FindFirstChild("Handle")
+			if not handle or not handle:IsA("BasePart") then
+				continue
+			end
+			local danger = anomalies:GetDangerNear(handle.Position, EquipmentConfig.InterferenceRadius)
+			local rounded = math.floor(danger * 10 + 0.5) / 10
+			if tool:GetAttribute("Interference") ~= rounded then
+				tool:SetAttribute("Interference", rounded)
+			end
+			local beam = handle:FindFirstChild("Beam")
+			if not beam or not beam:IsA("SpotLight") then
+				continue
+			end
+			if now < state.FailingUntil then
+				beam.Enabled = false
+			elseif danger > 0.75 and math.random() < 0.05 then
+				state.FailingUntil = now + 2.5 + math.random() * 1.5
+				self:_applyVisuals(player, itemId)
+				audio:Play("Flashlight.ElectricalFailure", handle, { Source = player })
+				task.delay(state.FailingUntil - now + 0.05, function()
+					if self.State[player] == state and state.On[itemId] then
+						self:_applyVisuals(player, itemId)
+						audio:Play("Flashlight.On", handle, {})
+					end
+					self:_push(player)
+				end)
+				self:_push(player)
+			elseif danger > 0.3 and math.random() < danger * 0.35 then
+				beam.Enabled = false
+				local makeNoise = now - state.LastMalfunctionNoise > 1.5
+				if makeNoise then
+					state.LastMalfunctionNoise = now
+				end
+				audio:Play("Flashlight.Flicker", handle, { Source = player, Noise = if makeNoise then nil else 0 })
+				task.delay(0.05 + math.random() * 0.15, function()
+					if state.On[itemId] and os.clock() >= state.FailingUntil and beam.Parent then
+						beam.Enabled = true
+					end
+				end)
+			end
+		end
+
+		-- EMF level (replicated through tool attributes so everyone hears the same beeps)
+		local tool = self:GetEquippedTool(player)
+		if tool and tool.Name == "EMF" and state.On.EMF then
+			local handle = tool:FindFirstChild("Handle")
+			if handle and handle:IsA("BasePart") then
+				local level, distort = anomalies:GetEMFLevel(handle.Position, EquipmentConfig.Items.EMF.Range)
+				if tool:GetAttribute("EMFLevel") ~= level then
+					tool:SetAttribute("EMFLevel", level)
+				end
+				if tool:GetAttribute("EMFDistort") ~= distort then
+					tool:SetAttribute("EMFDistort", distort)
+				end
+				state.NoiseTimer += dt
+				if state.NoiseTimer >= 1 and level > 0 then
+					state.NoiseTimer = 0
+					self.Services.NoiseService:Emit(handle.Position, level * EquipmentConfig.Items.EMF.NoisePerLevel, "EMF", player)
+				end
+			end
+		end
+	end
+end
+
+return EquipmentService

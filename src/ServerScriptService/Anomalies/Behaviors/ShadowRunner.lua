@@ -41,7 +41,7 @@ function ShadowRunner.Spawn(ctx, record)
 		while figure.Model.Parent do
 			root.CFrame = CFrame.lookAt(from, to)
 			local tween = Kit.TweenCFrame(root, CFrame.lookAt(to, to + (to - from).Unit), runTime, Enum.EasingStyle.Linear)
-			Kit.PlaySound3D(root, "Tick", 50, 3)
+			Kit.PlaySound3D(root, "Anomaly.Skitter", nil, 0.7)
 			tween.Completed:Wait()
 			-- stop and stare back
 			root.CFrame = CFrame.lookAt(to, from)

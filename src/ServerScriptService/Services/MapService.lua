@@ -52,11 +52,13 @@ local ZONES = {
 	Bathrooms = { X = { -100, -30 }, Z = { 40, 120 }, H = 18, Floor = Color3.fromRGB(215, 222, 222), FloorMat = Enum.Material.Marble, Wall = Color3.fromRGB(160, 195, 195), Ceiling = Color3.fromRGB(170, 175, 175) },
 	ToyStore = { X = { 30, 100 }, Z = { -120, -60 }, H = 20, Floor = Color3.fromRGB(140, 185, 220), FloorMat = Enum.Material.SmoothPlastic, Wall = Color3.fromRGB(225, 205, 115), Ceiling = Color3.fromRGB(180, 170, 140) },
 	Cinema = { X = { 30, 100 }, Z = { -60, 30 }, H = 26, Floor = Color3.fromRGB(95, 22, 30), FloorMat = Enum.Material.Fabric, Wall = Color3.fromRGB(55, 20, 28), Ceiling = Color3.fromRGB(30, 15, 18) },
-	StorageHallway = { X = { 30, 160 }, Z = { 84, 100 }, H = 14, Floor = Color3.fromRGB(120, 120, 115), FloorMat = Enum.Material.Concrete, Wall = Color3.fromRGB(135, 135, 128), Ceiling = Color3.fromRGB(100, 100, 95) },
+	StorageHallway = { X = { 30, 160 }, Z = { 84, 100 }, H = 14, Floor = Color3.fromRGB(120, 120, 115), FloorMat = Enum.Material.DiamondPlate, Wall = Color3.fromRGB(135, 135, 128), Ceiling = Color3.fromRGB(100, 100, 95) },
 	ParkingGarage = { X = { 160, 260 }, Z = { 30, 150 }, H = 16, Floor = Color3.fromRGB(72, 72, 76), FloorMat = Enum.Material.Concrete, Wall = Color3.fromRGB(110, 110, 110), Ceiling = Color3.fromRGB(90, 90, 90) },
+	SecurityOffice = { X = { 34, 64 }, Z = { 64, 84 }, H = 12, Floor = Color3.fromRGB(95, 98, 105), FloorMat = Enum.Material.SmoothPlastic, Wall = Color3.fromRGB(120, 125, 130), Ceiling = Color3.fromRGB(80, 80, 85) },
 }
 
 local LOBBY_CENTER = Vector3.new(-300, 0, 0)
+local buildInteractables -- defined below buildMall's helpers
 local DARKROOM_CENTER = Vector3.new(-300, 0, -120)
 
 ---------------------------------------------------------------------------
@@ -518,6 +520,207 @@ local function floorMarker(zone: string, x: number, z: number)
 end
 
 ---------------------------------------------------------------------------
+-- Interactive objects (doors, lockers, drawers, elevator, phone, office)
+-- InteractionService adds the ProximityPrompts and behaviour by tag.
+---------------------------------------------------------------------------
+
+-- hinge = floor point at the edge of the opening; along = unit vector across the opening
+local function buildDoor(parent: Instance, hinge: Vector3, along: Vector3, width: number, height: number, doorType: string, color: Color3, material: Enum.Material, locked: boolean?)
+	local door = model(parent, "Door")
+	local base = CFrame.fromMatrix(hinge + Vector3.new(0, height / 2, 0), along, Vector3.yAxis)
+	local hingePart = part(door, "Hinge", Vector3.new(0.3, height, 0.3), base, Color3.new(), nil, { Transparency = 1, CanCollide = false, CanQuery = false })
+	local panel = part(door, "Panel", Vector3.new(width - 0.1, height - 0.1, 0.35), base * CFrame.new(width / 2, 0, 0), color, material, { CastShadow = false })
+	local knob = part(door, "Knob", Vector3.new(0.3, 0.3, 0.7), base * CFrame.new(width - 0.55, -0.3, 0), Color3.fromRGB(190, 175, 120), Enum.Material.Metal, { CanCollide = false, CastShadow = false })
+	weldTo(hingePart, panel)
+	weldTo(hingePart, knob)
+	panel.Anchored = false
+	door.PrimaryPart = hingePart
+	door:SetAttribute("DoorType", doorType)
+	door:SetAttribute("Locked", locked == true)
+	door:SetAttribute("StartsLocked", locked == true)
+	if locked then
+		door:SetAttribute("KeyId", "SecurityKey")
+	end
+	CollectionService:AddTag(door, "Door")
+	return door
+end
+
+-- position = floor point on the wall surface, normal = facing into the room
+local function buildLocker(parent: Instance, position: Vector3, normal: Vector3, zone: string)
+	local locker = model(parent, "Locker")
+	local base = faced(position, normal)
+	part(locker, "Body", Vector3.new(2.6, 7, 2), base * CFrame.new(0, 3.5, -1), Color3.fromRGB(90, 105, 120), Enum.Material.Metal, { CastShadow = false })
+	local hinge = part(locker, "Hinge", Vector3.new(0.2, 6.6, 0.2), base * CFrame.new(-1.2, 3.5, -2.08), Color3.new(), nil, { Transparency = 1, CanCollide = false, CanQuery = false })
+	local panel = part(locker, "DoorPanel", Vector3.new(2.4, 6.6, 0.12), base * CFrame.new(0, 3.5, -2.08), Color3.fromRGB(105, 122, 140), Enum.Material.Metal, { CanCollide = false, CastShadow = false })
+	for i = 0, 3 do
+		part(locker, "Vent", Vector3.new(1.4, 0.08, 0.05), base * CFrame.new(0, 6 - i * 0.25, -2.15), Color3.fromRGB(40, 45, 50), nil, { CanCollide = false, CanQuery = false })
+	end
+	weldTo(hinge, panel)
+	for _, vent in ipairs(locker:GetChildren()) do
+		if vent.Name == "Vent" and vent:IsA("BasePart") then
+			weldTo(hinge, vent)
+		end
+	end
+	locker.PrimaryPart = hinge
+	locker:SetAttribute("Zone", zone)
+	CollectionService:AddTag(locker, "Locker")
+end
+
+local function buildDrawer(parent: Instance, position: Vector3, slide: Vector3, zone: string)
+	local drawer = part(parent, "Drawer", Vector3.new(1.6, 0.5, 1.6), CFrame.new(position), Color3.fromRGB(70, 60, 55), Enum.Material.Wood, { CanCollide = false, CastShadow = false })
+	drawer:SetAttribute("Slide", slide)
+	drawer:SetAttribute("Zone", zone)
+	CollectionService:AddTag(drawer, "Drawer")
+end
+
+local function pickupSpot(parent: Instance, position: Vector3, kind: string)
+	local spot = part(parent, "PickupSpot", Vector3.new(1, 1, 1), CFrame.new(position), Color3.new(), nil, {
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+	})
+	spot:SetAttribute("Kind", kind)
+end
+
+buildInteractables = function(root: Instance, structure: Instance, decorFolder: Instance, fixtures: Instance, lights: Instance)
+	local interactables = folder(root, "Interactables")
+	local wood = Color3.fromRGB(120, 85, 55)
+	local metal = Color3.fromRGB(125, 130, 140)
+
+	-- Doors -----------------------------------------------------------------------
+	buildDoor(interactables, Vector3.new(-30, 0, 74), Vector3.zAxis, 6, 11.5, "Wood", wood, Enum.Material.Wood)
+	buildDoor(interactables, Vector3.new(-30, 0, 86), -Vector3.zAxis, 6, 11.5, "Wood", wood, Enum.Material.Wood)
+	buildDoor(interactables, Vector3.new(30, 0, 85), Vector3.zAxis, 7, 10.8, "Metal", metal, Enum.Material.DiamondPlate)
+	buildDoor(interactables, Vector3.new(30, 0, 99), -Vector3.zAxis, 7, 10.8, "Metal", metal, Enum.Material.DiamondPlate)
+	buildDoor(interactables, Vector3.new(160, 0, 85), Vector3.zAxis, 7, 10.8, "Metal", metal, Enum.Material.DiamondPlate)
+	buildDoor(interactables, Vector3.new(160, 0, 99), -Vector3.zAxis, 7, 10.8, "Metal", metal, Enum.Material.DiamondPlate)
+	buildDoor(interactables, Vector3.new(46.5, 0, 84), Vector3.xAxis, 5, 9.3, "Security", Color3.fromRGB(70, 80, 95), Enum.Material.Metal, true)
+	sign(decorFolder, "SecuritySign", Vector3.new(49, 10.6, 85.2), Vector3.zAxis, Vector2.new(6, 1), "MALL SECURITY", Color3.fromRGB(20, 40, 90), Color3.fromRGB(255, 255, 255))
+
+	-- Lockers -----------------------------------------------------------------------
+	for _, x in ipairs({ 82, 85, 88 }) do
+		buildLocker(interactables, Vector3.new(x, 0, 85), Vector3.zAxis, "StorageHallway")
+	end
+	for _, z in ipairs({ 70, 73.2 }) do
+		buildLocker(interactables, Vector3.new(35, 0, z), Vector3.xAxis, "SecurityOffice")
+	end
+
+	-- Cash register drawers ----------------------------------------------------------------
+	for _, z in ipairs({ -35, -5, 25 }) do
+		decor(decorFolder, "Register", Vector3.new(1.6, 1, 1.8), CFrame.new(-93.9, 4.5, z + 3), Color3.fromRGB(40, 40, 45))
+		buildDrawer(interactables, Vector3.new(-92.6, 3.6, z + 3), Vector3.new(1.2, 0, 0), "FoodCourt")
+	end
+	decor(decorFolder, "Register", Vector3.new(1.6, 1, 1.8), CFrame.new(90.9, 4.3, -83), Color3.fromRGB(40, 40, 45))
+	buildDrawer(interactables, Vector3.new(89.6, 3.1, -83), Vector3.new(-1.2, 0, 0), "ToyStore")
+
+	-- Elevator (it never comes) ---------------------------------------------------------------
+	decor(structure, "ElevatorFrame", Vector3.new(9, 11, 0.4), CFrame.new(0, 5.5, -118.9), Color3.fromRGB(60, 60, 64), Enum.Material.Metal)
+	local left = part(interactables, "ElevatorLeft", Vector3.new(3.8, 10, 0.3), CFrame.new(-1.95, 5, -118.6), Color3.fromRGB(170, 172, 178), Enum.Material.Metal, { CastShadow = false })
+	local right = part(interactables, "ElevatorRight", Vector3.new(3.8, 10, 0.3), CFrame.new(1.95, 5, -118.6), Color3.fromRGB(170, 172, 178), Enum.Material.Metal, { CastShadow = false })
+	CollectionService:AddTag(left, "ElevatorDoor")
+	CollectionService:AddTag(right, "ElevatorDoor")
+	local button = part(interactables, "ElevatorButton", Vector3.new(0.8, 1.2, 0.2), CFrame.new(5.6, 4.2, -118.8), Color3.fromRGB(220, 200, 120), Enum.Material.Metal, { CanCollide = false, CastShadow = false })
+	CollectionService:AddTag(button, "ElevatorButton")
+
+	-- Payphone ---------------------------------------------------------------------------------
+	local phone = model(interactables, "Payphone")
+	local phoneBody = part(phone, "Body", Vector3.new(2, 3.6, 1), faced(Vector3.new(28.4, 4.6, 12), -Vector3.xAxis), Color3.fromRGB(40, 60, 90), Enum.Material.Metal, { CastShadow = false })
+	part(phone, "Handset", Vector3.new(0.4, 1.4, 0.35), phoneBody.CFrame * CFrame.new(-0.6, 0.2, -0.6), Color3.fromRGB(15, 15, 15), nil, { CanCollide = false })
+	phone.PrimaryPart = phoneBody
+	CollectionService:AddTag(phone, "Payphone")
+
+	-- Security office -------------------------------------------------------------------------
+	decor(decorFolder, "Desk", Vector3.new(6, 3, 3.5), CFrame.new(57, 1.5, 80.5), Color3.fromRGB(80, 65, 50), Enum.Material.Wood)
+	local computer = part(interactables, "SecurityComputer", Vector3.new(2.2, 1.6, 0.3), faced(Vector3.new(56, 4, 81.4), -Vector3.zAxis), Color3.fromRGB(20, 25, 30), nil, { CastShadow = false })
+	local screenLabel = surfaceText(computer, "CCTV\nOFFLINE", Color3.fromRGB(90, 255, 120), Enum.Font.Code, Enum.NormalId.Front, 0)
+	screenLabel.Name = "Screen"
+	CollectionService:AddTag(computer, "SecurityComputer")
+	local radio = part(interactables, "Radio", Vector3.new(1.2, 0.8, 0.5), CFrame.new(59.2, 3.4, 80.4), Color3.fromRGB(30, 35, 30), Enum.Material.Metal, { CastShadow = false })
+	part(interactables, "RadioAntenna", Vector3.new(0.06, 1, 0.06), CFrame.new(59.6, 4.2, 80.4), Color3.fromRGB(20, 20, 20), nil, { CanCollide = false, CanQuery = false })
+	CollectionService:AddTag(radio, "Radio")
+	local breaker = model(interactables, "Breaker")
+	local breakerBox = part(breaker, "Box", Vector3.new(2.4, 3.2, 0.6), faced(Vector3.new(63.3, 5, 70), -Vector3.xAxis), Color3.fromRGB(110, 115, 105), Enum.Material.Metal, { CastShadow = false })
+	part(breaker, "Lever", Vector3.new(0.3, 1.2, 0.3), breakerBox.CFrame * CFrame.new(0, 0.3, -0.45), Color3.fromRGB(200, 40, 40), nil, { CanCollide = false })
+	breaker.PrimaryPart = breakerBox
+	CollectionService:AddTag(breaker, "Breaker")
+	sign(decorFolder, "BreakerSign", Vector3.new(63.2, 7.2, 70), -Vector3.xAxis, Vector2.new(3, 0.7), "MAIN POWER", Color3.fromRGB(240, 200, 40), Color3.fromRGB(20, 20, 20))
+	for i = 0, 2 do
+		local monitor = part(decorFolder, "CCTVMonitor", Vector3.new(2, 1.5, 0.3), faced(Vector3.new(54 + i * 2.2, 6.3, 82.7), -Vector3.zAxis), Color3.fromRGB(15, 18, 20), nil, { CastShadow = false })
+		surfaceText(monitor, "CAM " .. (i + 1) .. "\n▒▒▒", Color3.fromRGB(150, 150, 150), Enum.Font.Code, Enum.NormalId.Front, 0)
+	end
+	buildLight(lights, Vector3.new(49, ZONES.SecurityOffice.H - 0.2, 74), "SecurityOffice", 22, Color3.fromRGB(230, 240, 255), 0.8, true)
+
+	-- Battery / pickup spots ----------------------------------------------------------------------
+	local spots = folder(root, "PickupSpots")
+	local batterySpots = {
+		Vector3.new(-8, 2.1, -40), Vector3.new(8, 2.1, 80), Vector3.new(-78, 3.4, -15), Vector3.new(-46, 3.4, 25),
+		Vector3.new(-65, 3.2, -85), Vector3.new(60, 6.3, -98), Vector3.new(92, 3.8, -88), Vector3.new(74, 0.4, -13),
+		Vector3.new(-97, 3.8, 70), Vector3.new(-45, 0.4, 100), Vector3.new(95, 2.8, 97.5), Vector3.new(140, 0.4, 88),
+		Vector3.new(175, 2.9, 38.5), Vector3.new(245, 2.9, 141.5), Vector3.new(210, 0.4, 65), Vector3.new(0, 3.7, 62),
+	}
+	for _, position in ipairs(batterySpots) do
+		pickupSpot(spots, position, "Battery")
+	end
+	pickupSpot(spots, Vector3.new(54.6, 3.2, 79.2), "OfficeBattery")
+	pickupSpot(spots, Vector3.new(57.8, 3.2, 79.2), "OfficeBattery")
+
+	-- Lightning above the skylight --------------------------------------------------------------------
+	local lightning = part(root, "LightningLight", Vector3.new(1, 1, 1), CFrame.new(0, 42, 0), Color3.new(1, 1, 1), nil, {
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+	})
+	local flash = Instance.new("PointLight")
+	flash.Name = "Flash"
+	flash.Range = 90
+	flash.Brightness = 0
+	flash.Color = Color3.fromRGB(200, 215, 255)
+	flash.Shadows = false
+	flash.Parent = lightning
+	CollectionService:AddTag(lightning, "LightningLight")
+
+	-- Footstep surfaces ---------------------------------------------------------------------------------
+	-- Thin, non-colliding overlays so every footstep surface can be heard in the mall. The
+	-- "FootstepSurface" attribute overrides the material (FootstepController / NoiseService).
+	local function overlay(name: string, surface: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material, props: { [string]: any }?): Part
+		local p = part(decorFolder, name, size, cframe, color, material, { CanCollide = false, CastShadow = false })
+		if props then
+			for key, value in pairs(props) do
+				(p :: any)[key] = value
+			end
+		end
+		p:SetAttribute("FootstepSurface", surface)
+		return p
+	end
+	-- rain leaking through the skylight + garage puddles (Water)
+	for _, puddle in ipairs({
+		{ Vector3.new(10, 0.03, 30), 6 }, { Vector3.new(-12, 0.03, -40), 4.5 }, { Vector3.new(190, 0.03, 60), 7 },
+		{ Vector3.new(230, 0.03, 120), 5 }, { Vector3.new(212, 0.03, 96), 4 },
+	}) do
+		overlay("Puddle", "Water", Vector3.new(0.05, puddle[2], puddle[2]), CFrame.new(puddle[1]) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(60, 70, 85), Enum.Material.Glass, {
+			Shape = Enum.PartType.Cylinder,
+			Transparency = 0.35,
+			Reflectance = 0.25,
+		})
+	end
+	-- the food court's old wooden stage (Wood)
+	overlay("WoodenStage", "Wood", Vector3.new(8, 0.05, 20), CFrame.new(-95, 0.03, -10), Color3.fromRGB(110, 78, 50), Enum.Material.WoodPlanks)
+	-- a smashed display case at the toy store entrance (Glass)
+	overlay("BrokenGlassArea", "Glass", Vector3.new(6, 0.02, 6), CFrame.new(36, 0.02, -86), Color3.new(1, 1, 1), Enum.Material.Glass, { Transparency = 1 })
+	local shardRandom = Random.new(7)
+	for i = 1, 14 do
+		local offset = Vector3.new(shardRandom:NextNumber(-2.6, 2.6), 0.04, shardRandom:NextNumber(-2.6, 2.6))
+		local size = Vector3.new(shardRandom:NextNumber(0.3, 1.1), 0.03, shardRandom:NextNumber(0.2, 0.7))
+		overlay("GlassShard" .. i, "Glass", size, CFrame.new(Vector3.new(36, 0, -86) + offset) * CFrame.Angles(0, shardRandom:NextNumber(0, math.pi), 0), Color3.fromRGB(200, 225, 235), Enum.Material.Glass, {
+			Transparency = 0.3,
+			Reflectance = 0.3,
+		})
+	end
+end
+
+---------------------------------------------------------------------------
 -- Dead Mall
 ---------------------------------------------------------------------------
 
@@ -598,7 +801,11 @@ local function buildMall(root: Instance)
 	wallZ(structure, -60, 30, 100, {}, Z.ToyStore.Wall, Z.Cinema.Wall)
 	wallZ(structure, 30, 30, 100, {}, Z.Cinema.Wall, EXTERIOR)
 	-- storage hallway + parking garage
-	wallZ(structure, 84, 30, 160, {}, EXTERIOR, Z.StorageHallway.Wall, Enum.Material.Concrete)
+	wallZ(structure, 84, 30, 160, { { Center = 49, Width = 5, Top = 9.5 } }, Z.SecurityOffice.Wall, Z.StorageHallway.Wall, Enum.Material.Concrete)
+	-- security office (locked room off the storage hallway)
+	wallZ(structure, 64, 34, 64, {}, EXTERIOR, Z.SecurityOffice.Wall)
+	wallX(structure, 34, 64, 84, {}, EXTERIOR, Z.SecurityOffice.Wall)
+	wallX(structure, 64, 64, 84, {}, Z.SecurityOffice.Wall, EXTERIOR)
 	wallZ(structure, 100, 30, 160, {}, Z.StorageHallway.Wall, EXTERIOR, Enum.Material.Concrete)
 	wallX(structure, 160, 30, 150, { { Center = 92, Width = 14, Top = 11 } }, Z.StorageHallway.Wall, Z.ParkingGarage.Wall, Enum.Material.Concrete)
 	wallX(structure, 260, 30, 150, {}, Z.ParkingGarage.Wall, EXTERIOR, Enum.Material.Concrete)
@@ -921,6 +1128,10 @@ local function buildMall(root: Instance)
 	end
 
 	marker("Skylight", "MainHall", CFrame.lookAt(Vector3.new(0, 46, 0), Vector3.new(0, 0, 0.01)))
+	floorMarker("SecurityOffice", 57, 70)
+	marker("Dark", "SecurityOffice", CFrame.lookAt(Vector3.new(37, 4, 66), Vector3.new(49, 4, 74)))
+
+	buildInteractables(root, structure, decorFolder, fixtures, lights)
 end
 
 ---------------------------------------------------------------------------
@@ -1285,6 +1496,36 @@ function MapService:ApplyTint()
 		then { TintColor = top.Tint, Saturation = top.Saturation, Contrast = top.Contrast }
 		else { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0 }
 	TweenService:Create(effect, TweenInfo.new(0.8, Enum.EasingStyle.Sine), goal):Play()
+end
+
+-- Two quick lightning flashes through the skylight.
+function MapService:Lightning()
+	for _, lightningPart in ipairs(CollectionService:GetTagged("LightningLight")) do
+		local flash = lightningPart:FindFirstChild("Flash")
+		if flash and flash:IsA("PointLight") then
+			task.spawn(function()
+				for _ = 1, 2 do
+					flash.Brightness = 9
+					task.wait(0.07)
+					flash.Brightness = 0
+					task.wait(0.09)
+				end
+			end)
+		end
+	end
+end
+
+function MapService:GetPickupSpots(kind: string)
+	local list = {}
+	local spots = self.Folders.DeadMall:FindFirstChild("PickupSpots")
+	if spots then
+		for _, spot in ipairs(spots:GetChildren()) do
+			if spot:IsA("BasePart") and spot:GetAttribute("Kind") == kind then
+				table.insert(list, spot)
+			end
+		end
+	end
+	return list
 end
 
 function MapService:GetMarkers(kinds: { string }?, zones: { string }?)

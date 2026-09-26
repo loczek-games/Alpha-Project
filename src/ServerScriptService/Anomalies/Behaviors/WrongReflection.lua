@@ -86,7 +86,7 @@ function WrongReflection.Spawn(ctx, record)
 end
 
 function WrongReflection.Update(ctx, record)
-	local state = record.State
+	local state: any = record.State
 	local glass: BasePart = state.Glass
 	local _, _, watcherRoot = ctx:GetNearestParticipant(glass.Position, 70)
 	if watcherRoot then

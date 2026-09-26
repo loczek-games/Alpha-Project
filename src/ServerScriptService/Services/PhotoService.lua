@@ -20,6 +20,7 @@ local Workspace = game:GetService("Workspace")
 local Config = ReplicatedStorage:WaitForChild("Config")
 local GameConfig = require(Config:WaitForChild("GameConfig"))
 local AnomalyConfig = require(Config:WaitForChild("AnomalyConfig"))
+local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
 local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local Net = require(Modules:WaitForChild("Net"))
@@ -100,12 +101,27 @@ function PhotoService:_onRequest(player: Player, cameraCFrame: any)
 	if not head then
 		return
 	end
-
-	self.FlashRemote:FireAllClients(player)
-	services.DataService:IncrementStat(player, "PhotosTaken")
+	-- the camera must actually be in the player's hands
+	if not services.EquipmentService:IsEquipped(player, "Camera") then
+		return
+	end
 
 	local round = services.RoundService
-	if round.State ~= "Round" or not round:IsParticipant(player) then
+	local inRound = round.State == "Round" and round:IsParticipant(player)
+	if inRound and not services.EquipmentService:ConsumeBattery(player, "Camera", EquipmentConfig.Items.Camera.Battery.PerUse) then
+		self:_fail(player, "NO_BATTERY")
+		return
+	end
+
+	-- everyone sees the flash and hears the shutter; sound-hunting anomalies hear it too
+	self.FlashRemote:FireAllClients(player)
+	services.DataService:IncrementStat(player, "PhotosTaken")
+	if inRound then
+		services.NoiseService:Emit(head.Position, stats.ShutterNoise, "Shutter", player, "Camera.Shutter")
+		services.NoiseService:Emit(head.Position, stats.FlashNoise, "Flash", player, "Camera.FlashTrigger")
+	end
+
+	if not inRound then
 		self:_fail(player, "NOT_IN_ROUND")
 		return
 	end

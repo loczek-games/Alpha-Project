@@ -35,6 +35,9 @@
         },
         "Controllers": {
           "$path": "src/StarterPlayer/StarterPlayerScripts/Controllers"
+        },
+        "RbxCharacterSounds": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/RbxCharacterSounds.client.lua"
         }
       }
     },

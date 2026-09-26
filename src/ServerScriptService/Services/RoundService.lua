@@ -117,6 +117,8 @@ function RoundService:_round()
 	self.EndRequested = false
 
 	services.DarkRoomService:EvictAll()
+	services.EquipmentService:ResetForRound()
+	services.InteractionService:ResetForRound()
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:AddParticipant(player)
 		if player.Character then
@@ -129,6 +131,7 @@ function RoundService:_round()
 	end)
 	services.EventService:StartRound()
 	services.AnomalyService:StartRound()
+	services.EnvironmentService:StartRound()
 	self:_broadcast()
 
 	self.AnnounceRemote:FireAllClients({
@@ -147,9 +150,11 @@ end
 
 function RoundService:_results()
 	local services = self.Services
+	services.EnvironmentService:StopRound()
 	services.EventService:StopRound()
 	services.AnomalyService:StopRound()
 	services.NPCService:DespawnAll()
+	services.InteractionService:EndRound()
 
 	self.State = "Results"
 	self.EndsAt = now() + ROUND.ResultsTime

@@ -20,6 +20,7 @@ local Config = ReplicatedStorage:WaitForChild("Config")
 local GameConfig = require(Config:WaitForChild("GameConfig"))
 local AnomalyConfig = require(Config:WaitForChild("AnomalyConfig"))
 local CameraConfig = require(Config:WaitForChild("CameraConfig"))
+local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
 local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
 
 local DataService = {}
@@ -42,6 +43,14 @@ local function deepCopy(value)
 	return copy
 end
 
+local function starterEquipment()
+	local owned = {}
+	for _, id in ipairs(EquipmentConfig.StarterItems) do
+		owned[id] = true
+	end
+	return owned
+end
+
 local function buildTemplate()
 	return {
 		Version = 1,
@@ -50,7 +59,8 @@ local function buildTemplate()
 		Discoveries = {},
 		OwnedCameras = { [CameraConfig.DefaultCamera] = true },
 		EquippedCamera = CameraConfig.DefaultCamera,
-		Upgrades = { Range = 0, Steady = 0, Sense = 0 },
+		Upgrades = { Range = 0, Steady = 0, Sense = 0, Silent = 0 },
+		OwnedEquipment = starterEquipment(),
 		DarkRoom = { Theme = "Default", Visits = 0 },
 		Settings = deepCopy(GameConfig.Settings),
 		PhotoRoll = {},
@@ -498,6 +508,12 @@ function DataService:SetSetting(player: Player, key: any, value: any)
 	if default == nil or type(value) ~= type(default) then
 		return
 	end
+	if type(value) == "number" then
+		if value ~= value then
+			return
+		end
+		value = math.floor(math.clamp(value, 0, 1) * 20 + 0.5) / 20 -- volumes in 5% steps
+	end
 	local data = self:GetData(player)
 	if not data then
 		return
@@ -568,6 +584,7 @@ function DataService:GetClientView(player: Player)
 		OwnedCameras = owned,
 		EquippedCamera = data.EquippedCamera,
 		Upgrades = deepCopy(data.Upgrades),
+		OwnedEquipment = deepCopy(data.OwnedEquipment),
 		Settings = deepCopy(data.Settings),
 		PhotoRoll = deepCopy(data.PhotoRoll),
 		PhotoRollCapacity = self:GetPhotoRollCapacity(player),

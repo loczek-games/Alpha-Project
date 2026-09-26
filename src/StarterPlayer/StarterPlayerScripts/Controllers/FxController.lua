@@ -10,6 +10,9 @@
 	  * Photographer    - you get photographed back, screen goes black
 	  * Walking Painting - the figure moves only when YOU are not looking
 	  * Sixth Sense whisper
+	  * camera glitch / static (broken autofocus, night-vision interference)
+	  * night vision (green grade + local light + scanlines)
+	  * jumpscares when a sound-hunting anomaly catches you
 	Respects the Reduced Flashes and Screen Shake settings.
 ]]
 
@@ -17,6 +20,7 @@ local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
@@ -94,6 +98,10 @@ function FxController:Init(controllers)
 	self.PhotoGrade.Enabled = false
 	self.PhotoGrade.Parent = Lighting
 
+	self:_buildGlitch()
+	self:_buildNightVision()
+	self:_buildJumpscare()
+
 	Net.Event("AnomalyFx").OnClientEvent:Connect(function(payload)
 		if type(payload) ~= "table" then
 			return
@@ -107,6 +115,10 @@ function FxController:Init(controllers)
 		elseif payload.Type == "SenseHint" then
 			self.Controllers.Sfx.Play("Whisper")
 			self.Controllers.AnnouncementController:Toast("👂 You sense something nearby...", Color3.fromRGB(190, 140, 255), 2.5)
+		elseif payload.Type == "Jumpscare" then
+			self:Jumpscare(payload.Kind)
+		elseif payload.Type == "FlashedBy" then
+			self:_flashedBy()
 		end
 	end)
 
@@ -178,12 +190,20 @@ function FxController:FreezeFrame(duration: number?)
 	end)
 end
 
+-- Someone else took a photo: their flash lights up the mall and you hear
+-- the shutter in 3D from where they stand.
 function FxController:_flashOtherCamera(photographer: Player)
 	local character = photographer.Character
-	local cameraModel = character and character:FindFirstChild("PlayerCamera")
-	local bulb = cameraModel and cameraModel:FindFirstChild("FlashBulb")
+	local cameraTool = character and character:FindFirstChild("Camera")
+	local bulb = cameraTool and cameraTool:FindFirstChild("FlashBulb")
 	local light = bulb and bulb:FindFirstChild("Flash")
-	if light and light:IsA("PointLight") then
+	local audio = self.Controllers.AudioController
+	local source: Instance? = if bulb and bulb:IsA("BasePart") then bulb else (character and character:FindFirstChild("Head"))
+	if source and source:IsA("BasePart") then
+		audio:Play("Camera.Shutter", source)
+		audio:Play("Camera.FlashTrigger", source)
+	end
+	if light and light:IsA("Light") then
 		local reduced = self.Controllers.ClientState:GetSetting("ReducedFlashes") == true
 		light.Brightness = if reduced then 2 else 8
 		light.Enabled = true
@@ -191,6 +211,280 @@ function FxController:_flashOtherCamera(photographer: Player)
 			light.Enabled = false
 		end)
 	end
+end
+
+---------------------------------------------------------------------------
+-- Glitch & static (broken autofocus, night-vision interference)
+---------------------------------------------------------------------------
+
+function FxController:_buildGlitch()
+	local UIKit = self.Controllers.UIKit
+	self.GlitchFrame = UIKit.Frame({
+		Name = "Glitch",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Visible = false,
+		ZIndex = 15,
+		Parent = self.Overlay,
+	})
+	self.GlitchBars = {}
+	for i = 1, 14 do
+		self.GlitchBars[i] = UIKit.Frame({
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = 0.6,
+			ZIndex = 15,
+			Parent = self.GlitchFrame,
+		})
+	end
+	self.GlitchGrade = Instance.new("ColorCorrectionEffect")
+	self.GlitchGrade.Name = "GlitchGrade"
+	self.GlitchGrade.Enabled = false
+	self.GlitchGrade.Parent = Lighting
+end
+
+local GLITCH_COLORS = {
+	Color3.fromRGB(255, 255, 255),
+	Color3.fromRGB(255, 40, 80),
+	Color3.fromRGB(40, 255, 200),
+	Color3.fromRGB(20, 20, 20),
+	Color3.fromRGB(120, 120, 140),
+}
+
+-- Screen-space interference: random bars + colour tearing for `duration`.
+-- `intensity` 0..1 controls how much of the screen breaks up.
+function FxController:Static(intensity: number, duration: number)
+	local reduced = self.Controllers.ClientState:GetSetting("ReducedFlashes") == true
+	intensity = math.clamp(intensity, 0, 1) * (if reduced then 0.4 else 1)
+	self.StaticUntil = math.max(self.StaticUntil or 0, os.clock() + duration)
+	self.StaticIntensity = math.max(if self.StaticThread then (self.StaticIntensity or 0) else 0, intensity)
+	if self.StaticThread then
+		return
+	end
+	self.GlitchFrame.Visible = true
+	self.GlitchGrade.Enabled = true
+	self.StaticThread = task.spawn(function()
+		while os.clock() < self.StaticUntil do
+			local level = self.StaticIntensity
+			for i, bar in ipairs(self.GlitchBars) do
+				local show = math.random() < level * (0.35 + i / 28)
+				bar.Visible = show
+				if show then
+					bar.Position = UDim2.new(math.random() * 0.3 - 0.15, 0, math.random(), 0)
+					bar.Size = UDim2.new(0.6 + math.random() * 0.8, 0, 0, math.random(2, math.floor(4 + 26 * level)))
+					bar.BackgroundColor3 = GLITCH_COLORS[math.random(1, #GLITCH_COLORS)]
+					bar.BackgroundTransparency = 0.25 + math.random() * 0.5
+				end
+			end
+			self.GlitchGrade.Saturation = -level * 0.8
+			self.GlitchGrade.Contrast = level * 0.4 * (math.random() * 2 - 1)
+			self.GlitchGrade.TintColor = if math.random() < 0.5 then Color3.fromRGB(255, 230, 240) else Color3.fromRGB(225, 255, 250)
+			task.wait(0.05)
+		end
+		self.GlitchFrame.Visible = false
+		self.GlitchGrade.Enabled = false
+		self.StaticIntensity = 0
+		self.StaticThread = nil
+	end)
+end
+
+function FxController:Glitch(duration: number?)
+	self:Static(0.85, duration or 0.5)
+end
+
+---------------------------------------------------------------------------
+-- Night vision goggles
+---------------------------------------------------------------------------
+
+function FxController:_buildNightVision()
+	local UIKit = self.Controllers.UIKit
+	self.NVGrade = Instance.new("ColorCorrectionEffect")
+	self.NVGrade.Name = "NightVisionGrade"
+	self.NVGrade.Enabled = false
+	self.NVGrade.TintColor = Color3.fromRGB(120, 255, 130)
+	self.NVGrade.Brightness = 0.12
+	self.NVGrade.Contrast = 0.3
+	self.NVGrade.Saturation = -0.6
+	self.NVGrade.Parent = Lighting
+
+	self.NVOverlay = UIKit.Frame({
+		Name = "NightVision",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 1,
+		Visible = false,
+		ZIndex = 4,
+		Parent = self.Overlay,
+	})
+	local gradient = Instance.new("UIGradient")
+	gradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.18, 1),
+		NumberSequenceKeypoint.new(0.82, 1),
+		NumberSequenceKeypoint.new(1, 0.1),
+	})
+	gradient.Parent = self.NVOverlay
+	for i = 0, 39 do
+		UIKit.Frame({
+			Position = UDim2.fromScale(0, i / 40),
+			Size = UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = Color3.fromRGB(0, 40, 0),
+			BackgroundTransparency = 0.85,
+			ZIndex = 4,
+			Parent = self.NVOverlay,
+		})
+	end
+	UIKit.Label({
+		AnchorPoint = Vector2.new(0, 0),
+		Position = UDim2.new(0, 18, 0, 70),
+		Size = UDim2.fromOffset(120, 24),
+		Text = "● NV",
+		Font = Enum.Font.Code,
+		TextSize = 20,
+		TextColor3 = Color3.fromRGB(140, 255, 140),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 4,
+		Parent = self.NVOverlay,
+	})
+end
+
+function FxController:SetNightVision(on: boolean)
+	self.NVGrade.Enabled = on
+	self.NVOverlay.Visible = on
+	if self.NVConnection then
+		self.NVConnection:Disconnect()
+		self.NVConnection = nil
+	end
+	if self.NVLight then
+		self.NVLight:Destroy()
+		self.NVLight = nil
+	end
+	if not on then
+		return
+	end
+	-- a light only this player sees: amplifies what's in front of the goggles
+	local anchor = Instance.new("Part")
+	anchor.Name = "COC_NightVisionLight"
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(170, 255, 170)
+	light.Brightness = 1.6
+	light.Range = 40
+	light.Shadows = false
+	light.Parent = anchor
+	anchor.Parent = Workspace.CurrentCamera or Workspace
+	self.NVLight = anchor
+	self.NVConnection = RunService.RenderStepped:Connect(function()
+		local camera = Workspace.CurrentCamera
+		if camera and anchor.Parent then
+			anchor.CFrame = camera.CFrame * CFrame.new(0, 0, -6)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Jumpscares (sound-hunting anomalies) & the Photographer's flash
+---------------------------------------------------------------------------
+
+function FxController:_buildJumpscare()
+	local UIKit = self.Controllers.UIKit
+	local frame = UIKit.Frame({
+		Name = "Jumpscare",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		Visible = false,
+		ZIndex = 30,
+		Parent = self.Overlay,
+	})
+	-- an eyeless, pale face with a huge dark mouth (drawn with frames: no images to upload)
+	local face = UIKit.Frame({
+		Name = "Face",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.52),
+		Size = UDim2.fromScale(0.62, 1.05),
+		BackgroundColor3 = Color3.fromRGB(196, 190, 176),
+		ZIndex = 31,
+		Parent = frame,
+	})
+	UIKit.Corner(face, UDim.new(0.45, 0))
+	for _, x in ipairs({ 0.3, 0.7 }) do
+		local socket = UIKit.Frame({
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(x, 0.3),
+			Size = UDim2.fromScale(0.2, 0.05),
+			BackgroundColor3 = Color3.fromRGB(120, 112, 100),
+			ZIndex = 32,
+			Parent = face,
+		})
+		UIKit.Corner(socket, UDim.new(1, 0))
+	end
+	local mouth = UIKit.Frame({
+		Name = "Mouth",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.62),
+		Size = UDim2.fromScale(0.62, 0.42),
+		BackgroundColor3 = Color3.fromRGB(10, 0, 0),
+		ZIndex = 32,
+		Parent = face,
+	})
+	UIKit.Corner(mouth, UDim.new(0.5, 0))
+	for i = 1, 7 do
+		UIKit.Frame({
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.fromScale(i / 8, 0),
+			Size = UDim2.fromScale(0.06, 0.16),
+			BackgroundColor3 = Color3.fromRGB(230, 225, 205),
+			ZIndex = 33,
+			Parent = mouth,
+		})
+	end
+	self.ScareFrame = frame
+	self.ScareFace = face
+	self.ScareScale = UIKit.new("UIScale", { Parent = face })
+end
+
+function FxController:Jumpscare(kind: string?)
+	local UIKit = self.Controllers.UIKit
+	local state = self.Controllers.ClientState
+	local reduced = state:GetSetting("ReducedFlashes") == true
+	local shake = state:GetSetting("ScreenShake") == true
+	local audio = self.Controllers.AudioController
+	audio:Play(if kind == "Listener" then "Anomaly.ListenerAttack" else "Anomaly.Jumpscare", nil)
+	self:Static(0.9, 0.5)
+
+	local frame = self.ScareFrame
+	frame.Visible = true
+	frame.BackgroundTransparency = if reduced then 0.35 else 0
+	self.ScareFace.Visible = not reduced -- reduced: just a dark hit + sound
+	self.ScareScale.Scale = 0.6
+	UIKit.Tween(self.ScareScale, 0.18, { Scale = 1.15 }, Enum.EasingStyle.Back)
+	task.spawn(function()
+		for _ = 1, 12 do
+			if shake then
+				self.ScareFace.Position = UDim2.new(0.5, math.random(-18, 18), 0.52, math.random(-12, 12))
+			end
+			task.wait(0.04)
+		end
+		self.ScareFace.Position = UDim2.fromScale(0.5, 0.52)
+		UIKit.Tween(frame, 0.5, { BackgroundTransparency = 1 })
+		self.ScareFace.Visible = false
+		task.wait(0.5)
+		frame.Visible = false
+	end)
+	self.Controllers.AnnouncementController:Toast("😱 IT HEARD YOU. (battery drained)", Color3.fromRGB(255, 90, 90), 3)
+end
+
+-- The Photographer flashes back at whoever is aiming a camera at it.
+function FxController:_flashedBy()
+	local UIKit = self.Controllers.UIKit
+	local reduced = self.Controllers.ClientState:GetSetting("ReducedFlashes") == true
+	self.FlashFrame.BackgroundTransparency = if reduced then 0.7 else 0
+	UIKit.Tween(self.FlashFrame, if reduced then 0.3 else 0.9, { BackgroundTransparency = 1 })
+	self:Static(0.5, 0.4)
 end
 
 ---------------------------------------------------------------------------

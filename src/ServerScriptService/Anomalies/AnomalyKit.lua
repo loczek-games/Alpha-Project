@@ -8,7 +8,6 @@
 	non-colliding, so anomalies never create physics work on mobile.
 ]]
 
-local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -16,6 +15,7 @@ local TweenService = game:GetService("TweenService")
 local GameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameConfig"))
 
 local Kit = {}
+Kit.Audio = nil :: any -- set by AnomalyService (AudioService)
 
 function Kit.Model(name: string): Model
 	local model = Instance.new("Model")
@@ -127,33 +127,12 @@ function Kit.YawDifference(a: CFrame, b: CFrame): number
 	return math.deg(math.acos(math.clamp(la.Unit:Dot(lb.Unit), -1, 1)))
 end
 
-function Kit.MakeSound(parent: Instance, key: string, looped: boolean?, maxDistance: number?): Sound?
-	local config = GameConfig.Sounds[key]
-	if not config or config.Id == "" then
-		return nil
+-- Plays a SoundConfig sound at a part/position for nearby players (via AudioService).
+-- Anomaly sounds are never counted as player noise.
+function Kit.PlaySound3D(where: any, path: string, _maxDistance: number?, playbackSpeed: number?)
+	if Kit.Audio then
+		Kit.Audio:Play(path, where, { Speed = playbackSpeed })
 	end
-	local sound = Instance.new("Sound")
-	sound.Name = key
-	sound.SoundId = config.Id
-	sound.Volume = config.Volume
-	sound.PlaybackSpeed = config.Speed
-	sound.Looped = looped == true
-	sound.RollOffMaxDistance = maxDistance or 80
-	sound.RollOffMinDistance = 6
-	sound.Parent = parent
-	return sound
-end
-
-function Kit.PlaySound3D(parent: Instance, key: string, maxDistance: number?, playbackSpeed: number?)
-	local sound = Kit.MakeSound(parent, key, false, maxDistance)
-	if sound then
-		if playbackSpeed then
-			sound.PlaybackSpeed = playbackSpeed
-		end
-		sound:Play()
-		Debris:AddItem(sound, 6)
-	end
-	return sound
 end
 
 --[[

@@ -3,14 +3,25 @@
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/PhotoController
 
 	The one-button core loop.
-	  Mobile : big PHOTO button (placed next to the jump button, thumb-reachable)
+	  Mobile : big action button (placed next to the jump button, thumb-reachable)
 	  PC     : Left Mouse Button or E (the on-screen button also works)
 	  Gamepad: R2 / ButtonX
+	The big button is PHOTO while the camera is held, otherwise it uses the
+	held item (flashlight, EMF, ...). Zoom: Q / L2 / the 🔍 button.
+
+	Camera sound design:  aim -> quiet autofocus "beep" + lens "zzzt"
+	-> CLICK + FLASH -> flash recharge whine. Near a dangerous anomaly the
+	autofocus breaks: "beep... beep... BEEEEP" + static + screen glitch,
+	and the entity may react (the server hears the autofocus).
+
 	The client only plays feedback and sends its camera CFrame. The server
 	(PhotoService) decides whether anything was captured.
 ]]
 
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -23,6 +34,14 @@ local Format = require(Modules:WaitForChild("Format"))
 
 local PhotoController = {}
 PhotoController.LastShot = 0
+PhotoController.Zoomed = false
+PhotoController.PromptsShown = 0
+PhotoController.LastFocusDistance = 0
+PhotoController.NextFocusCheck = 0
+PhotoController.NextBrokenFocus = 0
+
+local NORMAL_FOV = 70
+local ZOOM_FOV = 38
 
 local FAIL_MESSAGES = {
 	NOTHING = "Nothing strange here... 🤔",
@@ -33,6 +52,7 @@ local FAIL_MESSAGES = {
 	MAXED = "You already have 3 shots of this one 📚",
 	NOT_IN_ROUND = "📸 Photos only count inside the DEAD MALL",
 	DECOY = "That's just... normal. Probably. 😅",
+	NO_BATTERY = "🪫 Camera battery empty! Find a battery 🔋",
 }
 
 function PhotoController:Init(controllers)
@@ -63,7 +83,8 @@ function PhotoController:Init(controllers)
 		Parent = button,
 	})
 	UIKit.Corner(inner, UDim.new(1, 0))
-	UIKit.Label({
+	self.ButtonInner = inner
+	self.ButtonIcon = UIKit.Label({
 		Name = "Icon",
 		Text = "📸",
 		TextScaled = true,
@@ -71,7 +92,7 @@ function PhotoController:Init(controllers)
 		Size = UDim2.fromScale(0.6, 0.48),
 		Parent = inner,
 	})
-	UIKit.Label({
+	self.ButtonCaption = UIKit.Label({
 		Name = "Caption",
 		Text = "PHOTO",
 		Font = theme.FontBlack,
@@ -115,18 +136,48 @@ function PhotoController:Init(controllers)
 		Parent = hud.Gui,
 	})
 
+	-- small zoom button (touch only, while the camera is held)
+	self.ZoomButton = UIKit.Button({
+		Name = "ZoomButton",
+		AnchorPoint = Vector2.new(1, 1),
+		Size = UDim2.fromOffset(52, 52),
+		BackgroundColor3 = theme.Bg,
+		BackgroundTransparency = 0.25,
+		Text = "🔍",
+		TextSize = 22,
+		CornerRadius = 26,
+		Visible = false,
+		Parent = hud.Gui,
+	}, function()
+		self:ToggleZoom()
+	end)
+
 	button.Activated:Connect(function()
-		self:Shoot()
+		self:Press()
+	end)
+	-- E also triggers ProximityPrompts (doors, lockers...): don't shoot while one is shown
+	ProximityPromptService.PromptShown:Connect(function()
+		self.PromptsShown += 1
+	end)
+	ProximityPromptService.PromptHidden:Connect(function()
+		self.PromptsShown = math.max(0, self.PromptsShown - 1)
 	end)
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then
+		if gameProcessed or UIKit.IsAnyPanelOpen() then
 			return
 		end
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.E or input.KeyCode == Enum.KeyCode.ButtonR2 or input.KeyCode == Enum.KeyCode.ButtonX then
-			if not UIKit.IsAnyPanelOpen() then
-				self:Shoot()
-			end
+		local key = input.KeyCode
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or key == Enum.KeyCode.ButtonR2 or key == Enum.KeyCode.ButtonX then
+			self:Press()
+		elseif key == Enum.KeyCode.E and self.PromptsShown == 0 then
+			self:Press()
+		elseif key == Enum.KeyCode.Q or key == Enum.KeyCode.ButtonL2 then
+			self:ToggleZoom()
 		end
+	end)
+
+	controllers.EquipmentController.Changed:Connect(function(itemId)
+		self:_refreshButton(itemId)
 	end)
 
 	hud.Gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
@@ -175,6 +226,139 @@ function PhotoController:_layout()
 	self.Button.Size = UDim2.fromOffset(diameter, diameter)
 	self.Button.Position = UDim2.new(1, -right, 1, -bottom)
 	self.FailLabel.Position = UDim2.new(1, -right, 1, -(bottom + diameter + 8))
+	self.ZoomButton.Position = UDim2.new(1, -(right + diameter + 8), 1, -bottom)
+	self.Touch = touch
+	self:_refreshButton(self.Controllers.EquipmentController and self.Controllers.EquipmentController.Equipped)
+end
+
+function PhotoController:Start()
+	RunService.Heartbeat:Connect(function()
+		local ok, err = pcall(function()
+			self:_autofocus()
+		end)
+		if not ok then
+			warn("[PhotoController] autofocus:", err)
+		end
+	end)
+end
+
+-- The big button mirrors the held item.
+function PhotoController:_refreshButton(itemId: string?)
+	if not self.ButtonIcon then
+		return
+	end
+	local equipment = self.Controllers.EquipmentController
+	local item = equipment and equipment:GetEquippedItem()
+	local theme = self.Controllers.UIKit.Theme
+	if not item or item.Id == "Camera" then
+		self.ButtonIcon.Text = "📸"
+		self.ButtonCaption.Text = if item then "PHOTO" else "CAMERA"
+		self.ButtonInner.BackgroundColor3 = theme.Accent
+	else
+		local on = equipment.On[item.Id] == true
+		self.ButtonIcon.Text = item.Icon
+		self.ButtonCaption.Text = item.ActionLabel .. (if on then " ON" else "")
+		self.ButtonInner.BackgroundColor3 = if on then Color3.fromRGB(230, 170, 40) else Color3.fromRGB(70, 70, 90)
+	end
+	self.ZoomButton.Visible = self.Touch == true and itemId == "Camera"
+	if itemId ~= "Camera" and self.Zoomed then
+		self:ToggleZoom(true)
+	end
+end
+
+function PhotoController:Press()
+	local equipment = self.Controllers.EquipmentController
+	local held = equipment.Equipped
+	if held == "Camera" then
+		self:Shoot()
+	elseif held then
+		equipment:UseEquipped()
+	else
+		equipment:SelectItem("Camera")
+	end
+end
+
+function PhotoController:ToggleZoom(silent: boolean?)
+	local equipment = self.Controllers.EquipmentController
+	if not self.Zoomed and equipment.Equipped ~= "Camera" then
+		return
+	end
+	local camera = Workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	self.Zoomed = not self.Zoomed
+	TweenService:Create(camera, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = if self.Zoomed then ZOOM_FOV else NORMAL_FOV }):Play()
+	if not silent then
+		local audio = self.Controllers.AudioController
+		audio:Play(if self.Zoomed then "Camera.ZoomIn" else "Camera.ZoomOut", nil)
+		audio:Play("Camera.LensMove", nil)
+		equipment.Remote:FireServer("Zoom", if self.Zoomed then "In" else "Out")
+	end
+	self.ZoomButton.Text = if self.Zoomed then "🔎" else "🔍"
+end
+
+-- Real autofocus: re-focuses (beep + lens motor) when the distance in the
+-- middle of the frame changes. Dangerous anomalies make it malfunction.
+function PhotoController:_autofocus()
+	local equipment = self.Controllers.EquipmentController
+	local camera = Workspace.CurrentCamera
+	local now = os.clock()
+	if equipment.Equipped ~= "Camera" or not camera or now < self.NextFocusCheck then
+		return
+	end
+	self.NextFocusCheck = now + 0.3
+	local audio = self.Controllers.AudioController
+	local origin = camera.CFrame.Position
+	local look = camera.CFrame.LookVector
+
+	-- something dangerous in view?
+	local beacons = Workspace:FindFirstChild("AnomalyBeacons")
+	if beacons and now >= self.NextBrokenFocus then
+		for _, beacon in ipairs(beacons:GetChildren()) do
+			if beacon:IsA("BasePart") and (beacon:GetAttribute("Danger") or 0) >= 0.6 then
+				local offset = beacon.Position - origin
+				if offset.Magnitude < 55 and offset.Magnitude > 0.1 and math.deg(math.acos(math.clamp(look:Dot(offset.Unit), -1, 1))) < 25 then
+					self.NextBrokenFocus = now + 3.5
+					task.spawn(function()
+						audio:Play("Camera.Focus", nil)
+						task.wait(0.4)
+						audio:Play("Camera.Focus", nil)
+						task.wait(0.3)
+						audio:Play("Camera.FocusBroken", nil)
+						audio:Play("Camera.Static", nil)
+						self.Controllers.FxController:Glitch(0.6)
+						equipment.Remote:FireServer("FocusBroken")
+					end)
+					return
+				end
+			end
+		end
+	end
+
+	local params = self.FocusParams
+	if not params then
+		params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		self.FocusParams = params
+	end
+	local character = game:GetService("Players").LocalPlayer.Character
+	params.FilterDescendantsInstances = if character then { character } else {}
+	local result = Workspace:Raycast(origin, look * 150, params)
+	local distance = if result then result.Distance else 150
+	local last = self.LastFocusDistance
+	if math.abs(distance - last) / math.max(distance, 4) > 0.25 then
+		self.LastFocusDistance = distance
+		-- "beep... zzzt"
+		audio:Play("Camera.Focus", nil)
+		task.delay(0.12, function()
+			audio:Play("Camera.LensMove", nil, { Volume = 0.8 })
+		end)
+		if now >= (self.NextFocusRemote or 0) then
+			self.NextFocusRemote = now + 1 -- others (and anomalies) hear it; the server rate-limits too
+			equipment.Remote:FireServer("Focus")
+		end
+	end
 end
 
 function PhotoController:Shoot()
@@ -182,19 +366,34 @@ function PhotoController:Shoot()
 	local stats = state:GetCameraStats()
 	local now = os.clock()
 	local UIKit = self.Controllers.UIKit
-	if now - self.LastShot < stats.Cooldown then
+	local equipment = self.Controllers.EquipmentController
+	local audio = self.Controllers.AudioController
+	if now - self.LastShot < stats.Cooldown or not equipment:IsReady() then
 		self.ButtonScale.Scale = 0.9
 		UIKit.Tween(self.ButtonScale, 0.2, { Scale = 1 }, Enum.EasingStyle.Back)
 		return
 	end
-	self.LastShot = now
 	local camera = Workspace.CurrentCamera
 	if not camera then
 		return
 	end
+	if state:IsInRound() and (equipment.Battery.Camera or 100) <= 0 then
+		audio:Play("Camera.ButtonClick", nil)
+		audio:Play("Camera.Error", nil)
+		self:_onFail({ Success = false, Reason = "NO_BATTERY" })
+		self.LastShot = now
+		return
+	end
+	self.LastShot = now
 
 	local fx = self.Controllers.FxController
-	self.Controllers.Sfx.Play("Shutter")
+	-- *click* -> CLICK - FLASH -> recharge whine
+	audio:Play("Camera.ButtonClick", nil)
+	audio:Play("Camera.Shutter", nil)
+	audio:Play("Camera.FlashTrigger", nil)
+	task.delay(0.15, function()
+		audio:Play("Camera.FlashCharge", nil)
+	end)
 	fx:Flash(0.85)
 	fx:FreezeFrame(0.16)
 	self.Remote:FireServer(camera.CFrame)
@@ -290,7 +489,10 @@ function PhotoController:_onSuccess(result)
 	local theme = UIKit.Theme
 	local tier = RarityConfig.Get(result.Rarity)
 	local def = AnomalyConfig.Get(result.Id)
-	controllers.Sfx.Play(if result.IsNew then "NewDiscovery" else "Capture")
+	controllers.AudioController:Play(if tier.Rank >= RarityConfig.GetRank("Rare") then "Camera.CaptureRare" else "Camera.CaptureSuccess", nil)
+	if result.IsNew then
+		controllers.Sfx.Play("NewDiscovery")
+	end
 	controllers.HUDController:PulseReticle(tier.Color)
 
 	if self.Card then

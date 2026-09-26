@@ -78,7 +78,7 @@ function TheNightManager.Spawn(ctx, record)
 end
 
 function TheNightManager.Update(ctx, record)
-	local state = record.State
+	local state: any = record.State
 	local root: BasePart = state.Root
 	if state.Blinking then
 		return

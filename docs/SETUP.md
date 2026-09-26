@@ -102,17 +102,28 @@ server checks permission for every command.
 | `/event surge` / `blackout` / `falsealarm` / `rare` | Start a server event |
 | `/evidence 50000` | Give yourself Evidence |
 | `/anomalies` | Print every anomaly id to the Output window |
+| `/equipment` | Unlock every equipment item (Studio only) |
+| `/battery` | Refill all your batteries |
+| `/thunder` | Lightning + thunder now (masks player noise for ~2.5 s) |
+| `/phantom [kind]` | Play a deceptive sound near a player: `Footsteps`, `Shutter`, `FlashlightClick`, `DoorOpen`, `EMFBeep`, `BatteryPickup`, `Knock` (random if omitted, round only) |
 | `/resetdata` | Wipe your own save and kick (Studio only) |
 
 ---
 
-## Sounds
+## Sounds (4 uploads)
 
-`GameConfig.Sounds` uses built-in `rbxasset://sounds/...` files, which work in
-every place with no uploads. Replace any `Id` with your own
-`rbxassetid://` audio for a more polished shutter/ambience, or set it to `""`
-to disable that sound. Set `Ambience.Id` to a looping mall-muzak track to
-enable background ambience.
+All of the game's audio is original and already generated in `assets/audio/`.
+Every sound is configured in `ReplicatedStorage/Config/SoundConfig`.
+
+1. Upload the four files in `assets/audio/banks/` (`Equipment.ogg`, `Player.ogg`,
+   `World.ogg`, `Loops.ogg`) with **Asset Manager → Bulk Import**, to the same
+   owner (user or group) as the experience.
+2. Paste the four asset ids into `SoundConfig.Banks` (`"rbxassetid://..."`).
+
+Until then every one-shot sound plays a pitched built-in Roblox fallback, so the
+game is never silent; only music and ambience beds need the Loops bank. See
+[`docs/SOUND_DESIGN.md`](SOUND_DESIGN.md) for the full audio system, the noise
+values anomalies react to, and how to regenerate or replace sounds.
 
 ---
 
@@ -132,6 +143,10 @@ are empty. To hand-build or tweak the mall:
      (`Floor`, `Ceiling`, `DoorSlot`, `Dark`, `RunLane`, `Skylight`) and `Zone` attributes
    - zone bounds parts in `DeadMall.Zones` named after the zone id
    - `DeadMall.PlayerSpawns`, `DeadMall.NPCWaypoints` (attribute `Lane` = `West`/`East`)
+   - interactables tagged `Door` (attribute `DoorType` = Wood / Metal / Security / Hospital / School / Motel / Locker),
+     `Locker`, `Drawer`, `ElevatorButton`, `Payphone`, `SecurityComputer`, `Radio`, `Breaker`
+   - battery spots in `DeadMall.PickupSpots` (attribute `Kind` = `Battery` / `OfficeBattery`)
+   - optional `FootstepSurface` attribute on floor parts (`Wood`, `Metal`, `Water`, `Glass`, ...)
    - Lobby parts tagged `DarkRoomEntrance` / `DarkRoomExit` (with a ProximityPrompt),
      `DarkRoomFrame` (attribute `Index`) and `DarkRoomNameplate`
 

@@ -61,14 +61,14 @@ function CeilingWatcher.Spawn(ctx, record)
 end
 
 function CeilingWatcher.Update(ctx, record)
-	local state = record.State
+	local state: any = record.State
 	local root: BasePart = state.Root
 	local head: BasePart = state.Head
 	local lifeFraction = (workspace:GetServerTimeNow() - record.SpawnTime) / record.Lifetime
 	if not state.Skittered and lifeFraction > 0.45 then
 		state.Skittered = true
 		ctx.Kit.TweenCFrame(root, root.CFrame * CFrame.new(0, 0, -8) * CFrame.Angles(0, math.rad(35), 0), 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-		ctx.Kit.PlaySound3D(root, "Tick", 50, 2.5)
+		ctx.Kit.PlaySound3D(root, "Anomaly.Skitter")
 	end
 	local headPosition = (root.CFrame * HEAD_OFFSET).Position
 	local _, _, _, targetHead = ctx:GetNearestParticipant(headPosition, 80)

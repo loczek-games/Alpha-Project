@@ -47,7 +47,7 @@ function WatchingMannequin.Spawn(ctx, record)
 end
 
 function WatchingMannequin.Update(ctx, record)
-	local state = record.State
+	local state: any = record.State
 	if os.clock() < state.NextTurn then
 		return
 	end
@@ -60,7 +60,7 @@ function WatchingMannequin.Update(ctx, record)
 	local desired = ctx.Kit.YawTowards(root.CFrame, targetRoot.Position)
 	if ctx.Kit.YawDifference(root.CFrame, desired) > 5 then
 		ctx.Kit.TweenCFrame(root, desired, 0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-		ctx.Kit.PlaySound3D(record.Target, "Tick", 40, 0.35)
+		ctx.Kit.PlaySound3D(record.Target, "Anomaly.DoorCreak", nil, 1.3)
 	end
 end
 

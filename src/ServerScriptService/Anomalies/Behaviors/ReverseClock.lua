@@ -30,10 +30,6 @@ function ReverseClock.Spawn(ctx, record)
 	local minuteSpeed = math.rad(record.Params.MinuteSpeed or 200)
 	local hourSpeed = math.rad(record.Params.HourSpeed or 18)
 	local minuteAngle, hourAngle, tickTimer = 0, 0, 0
-	local tickSound = ctx.Kit.MakeSound(face, "Tick", false, 60)
-	if tickSound then
-		record.Cleaner:Add(tickSound)
-	end
 
 	record.Cleaner:Add(RunService.Heartbeat:Connect(function(dt)
 		-- negative angle = anticlockwise as seen from the front
@@ -42,9 +38,9 @@ function ReverseClock.Spawn(ctx, record)
 		minutePivot.CFrame = minuteBase * CFrame.Angles(0, 0, minuteAngle)
 		hourPivot.CFrame = hourBase * CFrame.Angles(0, 0, hourAngle)
 		tickTimer += dt
-		if tickSound and tickTimer >= 0.33 then
+		if tickTimer >= 0.33 then
 			tickTimer = 0
-			tickSound:Play()
+			ctx.Kit.PlaySound3D(face, "Anomaly.ClockTick")
 		end
 	end))
 	record.Cleaner:Add(function()

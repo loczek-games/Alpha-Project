@@ -56,7 +56,7 @@ function TheObserver.Spawn(ctx, record)
 	record.Cleaner:Add(function()
 		mapService:PopTint("TheObserver")
 	end)
-	Kit.PlaySound3D(sclera, "Reveal", 400)
+	Kit.PlaySound3D(sclera, "Anomaly.ObserverDrone")
 
 	record.Model = model
 	record.Target = pupil
@@ -66,7 +66,7 @@ function TheObserver.Spawn(ctx, record)
 end
 
 function TheObserver.Update(ctx, record)
-	local state = record.State
+	local state: any = record.State
 	local _, _, _, head = ctx:GetNearestParticipant(state.Center, 260)
 	local focus = if head then head.Position else state.Center - Vector3.new(0, 40, 0.01)
 	TweenService:Create(state.Root, TweenInfo.new(0.35, Enum.EasingStyle.Sine), {

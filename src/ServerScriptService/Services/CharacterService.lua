@@ -2,9 +2,11 @@
 	CharacterService (ModuleScript)
 	Location: ServerScriptService/Services/CharacterService
 
-	Per-character setup: walk speed, camera zoom limit (used by photo
-	validation), the visible camera prop in the player's hand (skin reflects
-	the equipped camera / VIP), the VIP name tag and Blackout flashlights.
+	Per-character setup: movement modes (walk / run / sneak - validated here
+	so noise is based on real speed), the stun used by sound-hunting
+	anomalies, camera zoom limit (used by photo validation), the VIP name
+	tag and stream-safe teleports. Equipment tools are handled by
+	EquipmentService.
 ]]
 
 local Players = game:GetService("Players")
@@ -13,37 +15,19 @@ local Workspace = game:GetService("Workspace")
 
 local Config = ReplicatedStorage:WaitForChild("Config")
 local GameConfig = require(Config:WaitForChild("GameConfig"))
-local CameraConfig = require(Config:WaitForChild("CameraConfig"))
+local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
 
 local CharacterService = {}
-CharacterService.FlashlightsOn = false
+CharacterService.Modes = {}
+CharacterService.StunnedUntil = {}
+CharacterService._modeTimes = {}
 
-local function prop(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
-	local p = Instance.new("Part")
-	p.Name = name
-	p.Size = size
-	p.CFrame = cframe
-	p.Color = color
-	p.Material = material or Enum.Material.SmoothPlastic
-	p.Shape = shape or Enum.PartType.Block
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	p.CastShadow = false
-	p.Massless = true
-	p.Anchored = false
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.Parent = parent
-	return p
-end
-
-local function weld(a: BasePart, b: BasePart)
-	local w = Instance.new("WeldConstraint")
-	w.Part0 = a
-	w.Part1 = b
-	w.Parent = b
-end
+local MOVEMENT = GameConfig.Movement
+local MODE_SPEED = {
+	Walk = MOVEMENT.WalkSpeed,
+	Run = MOVEMENT.RunSpeed,
+	Sneak = MOVEMENT.SneakSpeed,
+}
 
 function CharacterService:Init(services)
 	self.Services = services
@@ -53,9 +37,26 @@ function CharacterService:Init(services)
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:_watchPlayer(player)
 	end
-	-- equipped camera is only known once the save has loaded
+	Players.PlayerRemoving:Connect(function(player)
+		self.Modes[player] = nil
+		self.StunnedUntil[player] = nil
+		self._modeTimes[player] = nil
+	end)
 	services.DataService:OnProfileLoaded(function(player)
 		self:RefreshCharacter(player)
+	end)
+
+	Net.Event("MovementMode").OnServerEvent:Connect(function(player, mode)
+		if type(mode) ~= "string" or MODE_SPEED[mode] == nil then
+			return
+		end
+		local now = os.clock()
+		if self._modeTimes[player] and now - self._modeTimes[player] < 0.08 then
+			return
+		end
+		self._modeTimes[player] = now
+		self.Modes[player] = mode
+		self:_applySpeed(player)
 	end)
 end
 
@@ -76,13 +77,41 @@ function CharacterService:_setupCharacter(player: Player, character: Model)
 	if not humanoid or not humanoid:IsA("Humanoid") then
 		return
 	end
-	humanoid.WalkSpeed = GameConfig.Player.WalkSpeed
+	self.Modes[player] = "Walk"
+	self.StunnedUntil[player] = nil
+	self:_applySpeed(player)
 	player.CameraMaxZoomDistance = GameConfig.Player.MaxZoomDistance
 	character:WaitForChild("Head", 10)
 	self:RefreshCharacter(player)
-	if self.FlashlightsOn then
-		self:_setFlashlight(character, true)
+end
+
+function CharacterService:_applySpeed(player: Player)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
 	end
+	local stunned = self.StunnedUntil[player] and os.clock() < self.StunnedUntil[player]
+	humanoid.WalkSpeed = if stunned then 0 else MODE_SPEED[self.Modes[player] or "Walk"]
+	humanoid.JumpPower = if stunned then 0 else 50
+	humanoid.UseJumpPower = true
+end
+
+function CharacterService:GetMode(player: Player): string
+	return self.Modes[player] or "Walk"
+end
+
+-- Freezes a player briefly (caught by a sound-hunting anomaly).
+function CharacterService:Stun(player: Player, duration: number)
+	local untilTime = os.clock() + duration
+	self.StunnedUntil[player] = untilTime
+	self:_applySpeed(player)
+	task.delay(duration, function()
+		if self.StunnedUntil[player] == untilTime then
+			self.StunnedUntil[player] = nil
+			self:_applySpeed(player)
+		end
+	end)
 end
 
 function CharacterService:RefreshCharacter(player: Player)
@@ -93,57 +122,11 @@ function CharacterService:RefreshCharacter(player: Player)
 	if not character or not character.Parent then
 		return
 	end
-	self:_attachCamera(player, character)
 	self:_applyVipTag(player, character)
-end
-
-function CharacterService:_attachCamera(player: Player, character: Model)
-	local hand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
-	if not hand or not hand:IsA("BasePart") then
-		return
+	local equipment = self.Services.EquipmentService
+	if equipment and equipment.RefreshTools then
+		equipment:RefreshTools(player)
 	end
-	local existing = character:FindFirstChild("PlayerCamera")
-	if existing then
-		existing:Destroy()
-	end
-
-	local economy = self.Services.EconomyService
-	local cameraId = if economy then economy:GetEquippedCameraId(player) else CameraConfig.DefaultCamera
-	local def = CameraConfig.Get(cameraId) or CameraConfig.Get(CameraConfig.DefaultCamera)
-	local bodyColor, accentColor, material = def.BodyColor, def.AccentColor, Enum.Material.SmoothPlastic
-	if player:GetAttribute("VIP") then
-		local skin = CameraConfig.Skins.VIP
-		bodyColor, accentColor, material = skin.BodyColor, skin.AccentColor, skin.Material
-	end
-
-	local model = Instance.new("Model")
-	model.Name = "PlayerCamera"
-
-	local isR15 = hand.Name == "RightHand"
-	local base = hand.CFrame * CFrame.new(0, if isR15 then -0.35 else -1.1, -0.45)
-	local body = prop(model, "Body", Vector3.new(1.1, 0.72, 0.5), base, bodyColor, material)
-	prop(model, "Lens", Vector3.new(0.35, 0.5, 0.5), base * CFrame.new(0, -0.02, -0.4) * CFrame.Angles(0, math.pi / 2, 0), accentColor, Enum.Material.Metal, Enum.PartType.Cylinder)
-	prop(model, "Glass", Vector3.new(0.05, 0.38, 0.38), base * CFrame.new(0, -0.02, -0.59) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(40, 60, 90), Enum.Material.Glass, Enum.PartType.Cylinder)
-	local bulb = prop(model, "FlashBulb", Vector3.new(0.3, 0.16, 0.08), base * CFrame.new(0.32, 0.26, -0.27), Color3.fromRGB(240, 240, 255), Enum.Material.Neon)
-	prop(model, "Button", Vector3.new(0.18, 0.08, 0.18), base * CFrame.new(-0.3, 0.39, 0), Color3.fromRGB(220, 60, 60))
-
-	local flash = Instance.new("PointLight")
-	flash.Name = "Flash"
-	flash.Enabled = false
-	flash.Brightness = 8
-	flash.Range = 18
-	flash.Color = Color3.fromRGB(235, 240, 255)
-	flash.Shadows = false
-	flash.Parent = bulb
-
-	for _, child in ipairs(model:GetChildren()) do
-		if child:IsA("BasePart") and child ~= body then
-			weld(body, child)
-		end
-	end
-	weld(hand, body)
-	model.PrimaryPart = body
-	model.Parent = character
 end
 
 function CharacterService:_applyVipTag(player: Player, character: Model)
@@ -175,36 +158,6 @@ function CharacterService:_applyVipTag(player: Player, character: Model)
 	label.TextScaled = true
 	label.Parent = billboard
 	billboard.Parent = head
-end
-
-function CharacterService:_setFlashlight(character: Model, on: boolean)
-	local head = character:FindFirstChild("Head")
-	if not head then
-		return
-	end
-	local existing = head:FindFirstChild("Flashlight")
-	if on and not existing then
-		local light = Instance.new("SpotLight")
-		light.Name = "Flashlight"
-		light.Face = Enum.NormalId.Front
-		light.Angle = 60
-		light.Range = 48
-		light.Brightness = 2.6
-		light.Color = Color3.fromRGB(255, 245, 220)
-		light.Shadows = false
-		light.Parent = head
-	elseif not on and existing then
-		existing:Destroy()
-	end
-end
-
-function CharacterService:SetFlashlights(on: boolean)
-	self.FlashlightsOn = on
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player.Character then
-			self:_setFlashlight(player.Character, on)
-		end
-	end
 end
 
 function CharacterService:Teleport(player: Player, cframe: CFrame)

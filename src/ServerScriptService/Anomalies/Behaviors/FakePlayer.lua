@@ -96,7 +96,7 @@ function FakePlayer.Spawn(ctx, record)
 end
 
 function FakePlayer.Update(ctx, record)
-	local state = record.State
+	local state: any = record.State
 	local root: BasePart = state.Root
 	local _, _, _, targetHead = ctx:GetNearestParticipant(root.Position, 80)
 	if targetHead then

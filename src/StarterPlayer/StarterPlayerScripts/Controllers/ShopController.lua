@@ -4,7 +4,8 @@
 
 	CAMERA BAG panel (opened from the HUD camera button):
 	  CAMERAS  : buy / equip cameras with Evidence (FastCam also via Game Pass)
-	  UPGRADES : Zoom Lens, Steady Grip, Sixth Sense
+	  UPGRADES : Zoom Lens, Steady Grip, Sixth Sense, Silent Shutter
+	  EQUIPMENT: Thermal Scanner, UV Light, Night Vision
 	  STORE    : Game Passes + Developer Products (Robux)
 	Every purchase request is validated by the server (EconomyService /
 	MonetizationService); this UI only displays and asks.
@@ -16,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = ReplicatedStorage:WaitForChild("Config")
 local CameraConfig = require(Config:WaitForChild("CameraConfig"))
+local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
 local MonetizationConfig = require(Config:WaitForChild("MonetizationConfig"))
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local Net = require(Modules:WaitForChild("Net"))
@@ -40,7 +42,7 @@ function ShopController:Init(controllers)
 	self.Panel, self.Body, self.Tabs, self.Subtitle = panel, body, tabs, subtitle
 	subtitle.TextColor3 = UIKit.Theme.Evidence
 
-	for order, name in ipairs({ "CAMERAS", "UPGRADES", "STORE" }) do
+	for order, name in ipairs({ "CAMERAS", "UPGRADES", "EQUIPMENT", "STORE" }) do
 		UIKit.TabButton(tabs, name, order, function()
 			self.Tab = name
 			self:Render()
@@ -68,9 +70,16 @@ function ShopController:_request(action: string, id: string)
 		return self.ShopRemote:InvokeServer(action, id)
 	end)
 	local announcements = self.Controllers.AnnouncementController
+	local audio = self.Controllers.AudioController
 	if not ok then
+		audio:Play("UI.Error", nil)
 		announcements:Toast("Shop is busy, try again.", Color3.fromRGB(255, 120, 120))
 		return
+	end
+	if success and (string.sub(action, 1, 3) == "Buy") then
+		audio:Play(if action == "BuyUpgrade" then "Interaction.Upgrade" else "Interaction.Purchase", nil)
+	elseif not success then
+		audio:Play("UI.Error", nil)
 	end
 	announcements:Toast(message or (success and "Done!" or "Could not do that"), if success then Color3.fromRGB(120, 230, 140) else Color3.fromRGB(255, 120, 120))
 end
@@ -90,6 +99,8 @@ function ShopController:Render()
 		self:_renderCameras(scroll)
 	elseif self.Tab == "UPGRADES" then
 		self:_renderUpgrades(scroll)
+	elseif self.Tab == "EQUIPMENT" then
+		self:_renderEquipment(scroll)
 	else
 		self:_renderStore(scroll)
 	end
@@ -199,6 +210,25 @@ function ShopController:_renderUpgrades(scroll: Instance)
 			local affordable = data and data.Evidence >= price
 			self:_actionButton(actions, 1, string.format("LV %d  %s", level + 1, Format.Money(price)), theme.Evidence, affordable == true, function()
 				self:_request("BuyUpgrade", upgrade.Id)
+			end)
+		end
+	end
+end
+
+function ShopController:_renderEquipment(scroll: Instance)
+	local UIKit = self.Controllers.UIKit
+	local theme = UIKit.Theme
+	local data = self.Controllers.ClientState.Data
+	for order, item in ipairs(EquipmentConfig.GetSorted()) do
+		local owned = item.Price == 0 or (data and data.OwnedEquipment and data.OwnedEquipment[item.Id] == true)
+		local keyHint = if item.Wearable then "wearable" else string.format("key %d", item.Order)
+		local _, actions = self:_row(scroll, order, item.Icon, item.Name, string.format("%s\n%s · 🔋 battery powered", item.Description, keyHint))
+		if owned then
+			self:_actionButton(actions, 1, "OWNED ✓", theme.Good, false)
+		else
+			local affordable = data and data.Evidence >= item.Price
+			self:_actionButton(actions, 1, "BUY " .. Format.Money(item.Price), theme.Evidence, affordable == true, function()
+				self:_request("BuyEquipment", item.Id)
 			end)
 		end
 	end

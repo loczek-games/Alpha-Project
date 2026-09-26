@@ -321,6 +321,7 @@ function HUDController:_refreshZone()
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	local zoneName = nil
+	local zoneId = nil
 	if root and root:IsA("BasePart") then
 		local map = Workspace:FindFirstChild("Map")
 		local mall = map and map:FindFirstChild("DeadMall")
@@ -332,12 +333,14 @@ function HUDController:_refreshZone()
 					local half = bounds.Size / 2
 					if math.abs(localPoint.X) <= half.X and math.abs(localPoint.Z) <= half.Z and math.abs(localPoint.Y) <= half.Y + 4 then
 						zoneName = bounds:GetAttribute("DisplayName") or bounds.Name
+						zoneId = bounds.Name
 						break
 					end
 				end
 			end
 		end
 	end
+	self.CurrentZoneId = zoneId
 	if zoneName == self.CurrentZone then
 		return
 	end

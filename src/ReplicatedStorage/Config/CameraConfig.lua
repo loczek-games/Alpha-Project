@@ -20,6 +20,7 @@ CameraConfig.Cameras = {
 		Price = 0,
 		Cooldown = 1.2,
 		RangeMultiplier = 1,
+		Noise = 0.15,
 		Abilities = {},
 		Implemented = true,
 		BodyColor = Color3.fromRGB(38, 38, 44),
@@ -33,6 +34,7 @@ CameraConfig.Cameras = {
 		Price = 25000,
 		Cooldown = 0.55,
 		RangeMultiplier = 1,
+		Noise = 0.22, -- fast mechanical shutter: louder
 		Abilities = {},
 		Implemented = true,
 		GamePass = "FastCamera",
@@ -47,6 +49,7 @@ CameraConfig.Cameras = {
 		Price = 75000,
 		Cooldown = 1,
 		RangeMultiplier = 1,
+		Noise = 0.15,
 		Abilities = { Night = true },
 		Implemented = false,
 		BodyColor = Color3.fromRGB(30, 80, 40),
@@ -60,6 +63,7 @@ CameraConfig.Cameras = {
 		Price = 150000,
 		Cooldown = 1,
 		RangeMultiplier = 1,
+		Noise = 0.3, -- old mechanical camera
 		Abilities = { Thermal = true },
 		Implemented = false,
 		BodyColor = Color3.fromRGB(120, 40, 20),
@@ -73,6 +77,7 @@ CameraConfig.Cameras = {
 		Price = 300000,
 		Cooldown = 1,
 		RangeMultiplier = 1,
+		Noise = 0.15,
 		Abilities = { Glitch = true },
 		Implemented = false,
 		BodyColor = Color3.fromRGB(40, 20, 80),
@@ -110,6 +115,15 @@ CameraConfig.Upgrades = {
 		MaxLevel = 3,
 		Prices = { 4000, 12000, 35000 },
 		PerLevel = 3,
+	},
+	Silent = {
+		Name = "Silent Shutter",
+		Order = 4,
+		Icon = "🤫",
+		Description = "Quieter shutter + flash so sound-hunting anomalies are less likely to hear you.",
+		MaxLevel = 2,
+		Prices = { 8000, 22000 },
+		NoiseMultipliers = { 0.6, 0.33 }, -- 0.15 -> 0.09 -> 0.05
 	},
 	Sense = {
 		Name = "Sixth Sense",
@@ -166,12 +180,16 @@ function CameraConfig.GetStats(cameraId: string, upgrades: { [string]: number }?
 	local rangeLevel = levels.Range or 0
 	local steadyLevel = levels.Steady or 0
 	local senseLevel = levels.Sense or 0
+	local silentLevel = levels.Silent or 0
+	local noiseMultiplier = if silentLevel > 0 then CameraConfig.Upgrades.Silent.NoiseMultipliers[silentLevel] else 1
 	return {
 		Camera = camera,
 		Cooldown = camera.Cooldown,
 		RangeMultiplier = camera.RangeMultiplier * (1 + CameraConfig.Upgrades.Range.PerLevel * rangeLevel),
 		ExtraAngle = CameraConfig.Upgrades.Steady.PerLevel * steadyLevel,
 		SenseRadius = senseLevel > 0 and CameraConfig.Upgrades.Sense.Radii[senseLevel] or 0,
+		ShutterNoise = (camera.Noise or 0.15) * noiseMultiplier,
+		FlashNoise = 0.1 * noiseMultiplier,
 		Abilities = camera.Abilities,
 	}
 end

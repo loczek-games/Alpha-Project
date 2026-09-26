@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = ReplicatedStorage:WaitForChild("Config")
 local CameraConfig = require(Config:WaitForChild("CameraConfig"))
+local EquipmentConfig = require(Config:WaitForChild("EquipmentConfig"))
 local Net = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net"))
 local Format = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Format"))
 
@@ -189,6 +190,23 @@ function EconomyService:_handleShop(player: Player, action: any, id: any)
 		data.Upgrades[id] = level + 1
 		self.Services.DataService:MarkChanged(player)
 		return true, string.format("%s upgraded to level %d!", def.Name, level + 1)
+	elseif action == "BuyEquipment" then
+		local item = EquipmentConfig.Get(id)
+		if not item then
+			return false, "Unknown equipment"
+		end
+		if item.Price == 0 or data.OwnedEquipment[id] then
+			return false, "Already owned"
+		end
+		if not self:SpendEvidence(player, item.Price) then
+			return false, "Not enough Evidence (" .. Format.Money(item.Price) .. ")"
+		end
+		data.OwnedEquipment[id] = true
+		self.Services.DataService:MarkChanged(player)
+		if self.Services.EquipmentService then
+			self.Services.EquipmentService:RefreshTools(player)
+		end
+		return true, item.Name .. " added to your hotbar!"
 	end
 	return false, "Unknown action"
 end

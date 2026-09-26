@@ -2,65 +2,45 @@
 	Sfx (ModuleScript)
 	Location: StarterPlayer/StarterPlayerScripts/Controllers/Sfx
 
-	Local UI sounds (shutter, capture, fail, announcements) and the optional
-	mall ambience loop. Sound ids come from GameConfig.Sounds.
+	Short names for common UI sounds. Everything is routed through
+	AudioController (SoundConfig + mixer), so UI sounds respect the volume
+	settings like every other sound.
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SoundService = game:GetService("SoundService")
-
-local GameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GameConfig"))
-
 local Sfx = {}
-Sfx.Sounds = {}
+Sfx.Controllers = nil :: any
+
+-- legacy short names -> SoundConfig paths
+local MAP = {
+	Shutter = "Camera.Shutter",
+	Capture = "Camera.CaptureSuccess",
+	CaptureRare = "Camera.CaptureRare",
+	NewDiscovery = "UI.NewDiscovery",
+	Fail = "UI.Fail",
+	Button = "UI.Button",
+	Announce = "UI.Announce",
+	Reveal = "UI.Reveal",
+	Whisper = "UI.Whisper",
+	Heartbeat = "UI.Heartbeat",
+	Error = "UI.Error",
+	Toast = "UI.Toast",
+	Stinger = "UI.Stinger",
+}
 
 function Sfx:Init(controllers)
-	self.Controllers = controllers
-	local folder = Instance.new("Folder")
-	folder.Name = "CaughtOnCameraSfx"
-	folder.Parent = SoundService
-	for key, config in pairs(GameConfig.Sounds) do
-		if config.Id ~= "" then
-			local sound = Instance.new("Sound")
-			sound.Name = key
-			sound.SoundId = config.Id
-			sound.Volume = config.Volume
-			sound.PlaybackSpeed = config.Speed
-			sound.Parent = folder
-			self.Sounds[key] = sound
-		end
-	end
-	local UIKit = controllers.UIKit
-	UIKit.ButtonSound = function()
+	Sfx.Controllers = controllers
+	controllers.UIKit.ButtonSound = function()
 		Sfx.Play("Button")
-	end
-
-	local ambience = self.Sounds.Ambience
-	if ambience then
-		ambience.Looped = true
-		local state = controllers.ClientState
-		local function refresh()
-			local wanted = state:GetSetting("Ambience") == true
-			if wanted and not ambience.IsPlaying then
-				ambience:Play()
-			elseif not wanted and ambience.IsPlaying then
-				ambience:Stop()
-			end
-		end
-		state.DataChanged:Connect(refresh)
-		refresh()
 	end
 end
 
+-- key: a short name above or any SoundConfig path. Plays in 2D (UI).
 function Sfx.Play(key: string, speedMultiplier: number?)
-	local sound = Sfx.Sounds[key]
-	if not sound then
+	local controllers = Sfx.Controllers
+	if not controllers then
 		return
 	end
-	local config = GameConfig.Sounds[key]
-	sound.PlaybackSpeed = config.Speed * (speedMultiplier or 1)
-	sound.TimePosition = 0
-	sound:Play()
+	controllers.AudioController:Play(MAP[key] or key, nil, { Speed = speedMultiplier })
 end
 
 return Sfx

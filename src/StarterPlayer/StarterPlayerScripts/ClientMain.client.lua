@@ -15,11 +15,15 @@ local Controllers = script.Parent:WaitForChild("Controllers")
 local ORDER = {
 	"ClientState",
 	"UIKit",
+	"AudioController",
 	"Sfx",
 	"HUDController",
 	"AnnouncementController",
 	"FxController",
+	"EquipmentController",
 	"PhotoController",
+	"MovementController",
+	"FootstepController",
 	"AlbumController",
 	"ShopController",
 	"ResultsController",
@@ -27,7 +31,8 @@ local ORDER = {
 	"ChatTagController",
 }
 
--- No tools in this game - hide the backpack hotbar to keep the mobile screen clean.
+-- Equipment uses real Tools, but the game draws its own compact hotbar
+-- (EquipmentController) - hide the default backpack bar on every device.
 task.spawn(function()
 	for _ = 1, 10 do
 		local ok = pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.Backpack, false)

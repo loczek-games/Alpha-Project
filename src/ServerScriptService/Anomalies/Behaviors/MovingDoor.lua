@@ -51,7 +51,7 @@ function MovingDoor.Spawn(ctx, record)
 	record.Cleaner:Add(task.spawn(function()
 		task.wait(1.2)
 		while true do
-			Kit.PlaySound3D(panel, "Slam", 60, 0.18)
+			Kit.PlaySound3D(panel, "Anomaly.DoorCreak")
 			Kit.TweenCFrame(hinge, record.State.Closed * CFrame.Angles(0, openAngle, 0), openTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 			task.wait(openTime + 2.5)
 			Kit.TweenCFrame(hinge, record.State.Closed * CFrame.Angles(0, openAngle * 0.35, 0), 1.6)
@@ -66,7 +66,7 @@ function MovingDoor.Despawn(ctx, record)
 	if hinge and hinge.Parent then
 		local tween = TweenService:Create(hinge, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = record.State.Closed })
 		tween:Play()
-		ctx.Kit.PlaySound3D(hinge, "Slam", 90)
+		ctx.Kit.PlaySound3D(hinge, "Door.Wood.Slam")
 		task.wait(0.2)
 	end
 end

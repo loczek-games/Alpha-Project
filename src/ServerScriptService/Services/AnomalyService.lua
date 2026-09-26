@@ -58,6 +58,21 @@ function AnomalyService:Init(services)
 	self.Services = services
 	self.FxRemote = Net.Event("AnomalyFx")
 	self.AnnounceRemote = Net.Event("Announce")
+	Kit.Audio = services.AudioService
+
+	-- Invisible markers that let client equipment (thermal scanner, camera
+	-- autofocus glitches, UV, "silence before an encounter") sense anomalies.
+	local beacons = Instance.new("Model")
+	beacons.Name = "AnomalyBeacons"
+	beacons.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	beacons.Parent = Workspace
+	self.BeaconFolder = beacons
+	local residue = Instance.new("Folder")
+	residue.Name = "UVResidue"
+	residue.Parent = Workspace
+	self.ResidueFolder = residue
+	self.FloorParams = RaycastParams.new()
+	self.FloorParams.FilterType = Enum.RaycastFilterType.Exclude
 
 	local behaviorsFolder = AnomaliesFolder:WaitForChild("Behaviors")
 	for _, moduleScript in ipairs(behaviorsFolder:GetChildren()) do
@@ -350,8 +365,12 @@ function AnomalyService:Spawn(anomalyId: string, options)
 	record.ExpireTime = record.SpawnTime + record.Lifetime
 	record.Ready = true
 
+	self:_createBeacon(record)
+	if def.Residue then
+		self:_createResidue(record)
+	end
 	if not def.Params.Silent and not record.Silent then
-		Kit.PlaySound3D(record.Target, "AnomalySting", 70)
+		Kit.PlaySound3D(record.Target, "Anomaly.Sting", 70)
 	end
 	self:_sendSenseHints(record)
 	return record
@@ -390,6 +409,10 @@ function AnomalyService:_update(dt: number)
 		if not record.Target or not record.Target:IsDescendantOf(Workspace) then
 			self:Despawn(record, "Lost")
 			continue
+		end
+		local beacon = record.Beacon
+		if beacon and (beacon.Position - record.Target.Position).Magnitude > 0.5 then
+			beacon.CFrame = CFrame.new(record.Target.Position)
 		end
 		local behavior = self.Behaviors[record.Def.Behavior]
 		if behavior and behavior.Update then
@@ -435,6 +458,12 @@ function AnomalyService:_cleanup(record)
 	end
 	record.CleanedUp = true
 	record.Cleaner:Clean()
+	if record.Beacon then
+		record.Beacon:Destroy()
+	end
+	for _, part in ipairs(record.ResidueParts or {}) do
+		part:Destroy()
+	end
 	if record.Model then
 		record.Model:Destroy()
 	end
@@ -611,6 +640,102 @@ end
 
 function AnomalyService:Announce(payload)
 	self.AnnounceRemote:FireAllClients(payload)
+end
+
+---------------------------------------------------------------------------
+-- Sensing helpers (equipment interference, EMF, beacons, UV residue)
+---------------------------------------------------------------------------
+
+function AnomalyService:_createBeacon(record)
+	local def = record.Def
+	local beacon = Instance.new("Part")
+	beacon.Name = def.Id
+	beacon.Size = Vector3.new(0.5, 0.5, 0.5)
+	beacon.Anchored = true
+	beacon.CanCollide = false
+	beacon.CanQuery = false
+	beacon.CanTouch = false
+	beacon.Transparency = 1
+	beacon.CFrame = CFrame.new(record.Target.Position)
+	beacon:SetAttribute("Uid", record.Uid)
+	beacon:SetAttribute("AnomalyId", def.Id)
+	beacon:SetAttribute("Danger", def.Danger)
+	beacon:SetAttribute("EMF", def.EMF)
+	beacon:SetAttribute("Cold", def.Cold == true)
+	beacon.Parent = self.BeaconFolder
+	record.Beacon = beacon
+end
+
+-- A few glowing hand/foot prints on the floor near the anomaly, visible only through a UV light.
+function AnomalyService:_createResidue(record)
+	record.ResidueParts = {}
+	local origin = record.Target.Position
+	self.FloorParams.FilterDescendantsInstances = { self.Services.MapService.Folders.ActiveAnomalies, self.ResidueFolder, self.BeaconFolder }
+	local angle = math.random() * math.pi * 2
+	for index = 1, 5 do
+		local distance = 3 + index * 2.2
+		angle += (math.random() - 0.5) * 0.8
+		local flat = origin + Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+		local result = Workspace:Raycast(flat + Vector3.new(0, 6, 0), Vector3.new(0, -30, 0), self.FloorParams)
+		if result then
+			local print_ = Instance.new("Part")
+			print_.Name = "Residue"
+			print_.Size = Vector3.new(0.9, 0.05, 1.4)
+			print_.CFrame = CFrame.new(result.Position + Vector3.new(0, 0.04, 0)) * CFrame.Angles(0, -angle + math.pi / 2 + (index % 2) * 0.3, 0)
+			print_.Anchored = true
+			print_.CanCollide = false
+			print_.CanQuery = false
+			print_.CanTouch = false
+			print_.CastShadow = false
+			print_.Material = Enum.Material.Neon
+			print_.Color = Color3.fromRGB(120, 255, 210)
+			print_.Transparency = 1 -- clients reveal it locally under UV light
+			print_:SetAttribute("Residue", true)
+			print_.Parent = self.ResidueFolder
+			table.insert(record.ResidueParts, print_)
+		end
+	end
+end
+
+-- 0..1: how strongly dangerous anomalies disturb electronics at this position.
+function AnomalyService:GetDangerNear(position: Vector3, radius: number): number
+	local strongest = 0
+	for _, record in pairs(self.Active) do
+		if record.Ready and not record.Despawning and record.Target then
+			local distance = (record.Target.Position - position).Magnitude
+			if distance < radius then
+				strongest = math.max(strongest, record.Def.Danger * (1 - distance / radius))
+			end
+		end
+	end
+	return strongest
+end
+
+-- EMF level 0-5 at a position, plus whether the reading distorts.
+function AnomalyService:GetEMFLevel(position: Vector3, range: number): (number, boolean)
+	local level, distort = 0, false
+	for _, record in pairs(self.Active) do
+		if record.Ready and not record.Despawning and record.Target then
+			local distance = (record.Target.Position - position).Magnitude
+			if distance < range then
+				local value = math.ceil(record.Def.EMF * (1 - distance / range) ^ 0.7)
+				if value > level then
+					level = value
+					distort = value >= 5 and record.Def.Danger >= 0.7
+				end
+			end
+		end
+	end
+	return math.clamp(level, 0, 5), distort
+end
+
+-- Sound-hunting anomalies "catch" a player: jumpscare, short stun and drained battery.
+function AnomalyService:AttackPlayer(player: Player, kind: string, batteryDrain: number?)
+	self:FireFx(player, { Type = "Jumpscare", Kind = kind })
+	self.Services.CharacterService:Stun(player, GameConfig.Movement.StunTime)
+	if batteryDrain and batteryDrain > 0 then
+		self.Services.EquipmentService:DrainEquipped(player, batteryDrain)
+	end
 end
 
 return AnomalyService

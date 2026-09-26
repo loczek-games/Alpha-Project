@@ -33,6 +33,16 @@
 	  Params           free-form table passed to the behaviour ("Special Behavior" tuning)
 	  Icon / Description  album + dark room presentation
 	  Badge            optional key in GameConfig.Badges awarded on capture
+	  Danger           0-1 how dangerous it feels: disturbs cameras, flashlights,
+	                   night vision, and silences the music when close
+	  EMF              1-5 peak EMF reading right next to it
+	  Cold             true = shows as a cold spot on the Thermal Scanner
+	  Residue          true = leaves a UV-only residue trail near it
+	  Hearing          sound-sensitive anomalies only:
+	                     Radius, Threshold, Kinds = { NoiseKind = multiplier }
+	                   (NoiseKinds: Sneak, Footstep, Run, Land, Shutter, Flash, Focus,
+	                    FlashlightClick, FlashlightMalfunction, DoorOpen, DoorClose,
+	                    DoorSlam, Interaction, Voice, Radio, Phone, EMF)
 ]]
 
 local RarityConfig = require(script.Parent:WaitForChild("RarityConfig"))
@@ -47,6 +57,10 @@ AnomalyConfig.Defaults = {
 	Announce = "Default",
 	TargetRadius = 2,
 	EventWeightMultiplier = 1,
+	Danger = 0.3,
+	EMF = 2,
+	Cold = false,
+	Residue = true,
 }
 
 AnomalyConfig.List = {
@@ -63,6 +77,7 @@ AnomalyConfig.List = {
 		TargetRadius = 2.5,
 		Params = { MinuteSpeed = 200, HourSpeed = 18 },
 		Icon = "🕰️",
+		Danger = 0.1, EMF = 2,
 		Description = "Every clock in the mall stopped at 3:00. This one is running backwards.",
 	},
 	{
@@ -77,6 +92,7 @@ AnomalyConfig.List = {
 		TargetRadius = 2.5,
 		Params = { Height = 5, BobAmplitude = 0.8, SpinSpeed = 0.35 },
 		Icon = "🛒",
+		Danger = 0.2, EMF = 3,
 		Description = "An abandoned cart that forgot about gravity.",
 	},
 	{
@@ -91,6 +107,7 @@ AnomalyConfig.List = {
 		TargetRadius = 1.8,
 		Params = { FlickerMin = 0.25, FlickerMax = 1.1 },
 		Icon = "🔀",
+		Danger = 0.1, EMF = 1,
 		Description = "The EXIT sign insists you walk into the wall.",
 	},
 	----------------------------------------------------------------- UNUSUAL
@@ -106,6 +123,7 @@ AnomalyConfig.List = {
 		TargetRadius = 3,
 		Params = { OpenAngle = 70, OpenTime = 3 },
 		Icon = "🚪",
+		Danger = 0.4, EMF = 3, Cold = true,
 		Description = "There was never a door here. It is slowly opening.",
 	},
 	{
@@ -123,6 +141,7 @@ AnomalyConfig.List = {
 		TargetRadius = 2.5,
 		Params = { HiddenTransparency = 0.8 },
 		Icon = "💡",
+		Danger = 0.5, EMF = 4,
 		Description = "Three short, three long, three short. Something stands where the dark was.",
 	},
 	{
@@ -136,6 +155,7 @@ AnomalyConfig.List = {
 		Spawn = { Fixture = "MallPainting" },
 		TargetRadius = 3,
 		Icon = "🖼️",
+		Danger = 0.3, EMF = 2, Cold = true,
 		Description = "The person in the painting moves whenever nobody is looking.",
 	},
 	----------------------------------------------------------------- RARE
@@ -151,6 +171,7 @@ AnomalyConfig.List = {
 		TargetRadius = 2.5,
 		Params = { TurnInterval = 0.8, WatchRange = 70 },
 		Icon = "🧍",
+		Danger = 0.4, EMF = 3, Cold = true,
 		Description = "A mannequin where there was none. It turns to follow you.",
 	},
 	{
@@ -164,6 +185,7 @@ AnomalyConfig.List = {
 		Spawn = { NPC = true, MinNPCs = 1 },
 		TargetRadius = 1.8,
 		Icon = "😶",
+		Danger = 0.3, EMF = 2,
 		Description = "A shopper strolling through the mall. Look closer at the face.",
 	},
 	{
@@ -177,6 +199,7 @@ AnomalyConfig.List = {
 		Spawn = { NPC = true, MinNPCs = 3 },
 		TargetRadius = 2.5,
 		Icon = "🧊",
+		Danger = 0.3, EMF = 3,
 		Description = "Every shopper froze mid-step. Except one.",
 	},
 	----------------------------------------------------------------- EPIC
@@ -192,6 +215,7 @@ AnomalyConfig.List = {
 		TargetRadius = 2.2,
 		Params = { WaveInterval = 4.5 },
 		Icon = "👥",
+		Danger = 0.6, EMF = 4, Cold = true,
 		Description = "Your reflection is not copying you anymore. It is watching you.",
 	},
 	{
@@ -205,6 +229,7 @@ AnomalyConfig.List = {
 		Spawn = { Kinds = { "Ceiling" } },
 		TargetRadius = 3,
 		Icon = "🕷️",
+		Danger = 0.8, EMF = 4, Cold = true,
 		Description = "Something long-limbed clings to the ceiling. Look up.",
 	},
 	{
@@ -219,6 +244,7 @@ AnomalyConfig.List = {
 		TargetRadius = 2.2,
 		Params = { WalkSpeed = 9, HeadTwistInterval = 6 },
 		Icon = "👤",
+		Danger = 0.6, EMF = 3, Cold = true,
 		Description = "It looks exactly like someone in this server. Almost exactly.",
 	},
 	----------------------------------------------------------------- MYTHIC
@@ -233,6 +259,7 @@ AnomalyConfig.List = {
 		Spawn = { Player = true, MinPlayers = 2 },
 		TargetRadius = 1.8,
 		Icon = "😁",
+		Danger = 0.5, EMF = 2, Residue = false,
 		Description = "One player is smiling far too wide. They have no idea.",
 	},
 	{
@@ -247,6 +274,7 @@ AnomalyConfig.List = {
 		TargetRadius = 2.5,
 		Params = { Distance = 4.5 },
 		Icon = "👻",
+		Danger = 0.9, EMF = 5, Cold = true, Residue = false,
 		Description = "It follows one player closely. Whatever you do, do not turn around.",
 	},
 	----------------------------------------------------------------- NIGHTMARE
@@ -262,6 +290,8 @@ AnomalyConfig.List = {
 		TargetRadius = 2.5,
 		Icon = "📷",
 		Badge = "PhotographedBack",
+		Danger = 0.7, EMF = 4, Cold = true,
+		Hearing = { Radius = 45, Threshold = 0.05, Kinds = { Focus = 1.6, Shutter = 2, Flash = 2 } },
 		Description = "It collects evidence too. Of you.",
 	},
 	----------------------------------------------------------------- IMPOSSIBLE
@@ -269,7 +299,7 @@ AnomalyConfig.List = {
 		Id = "TheObserver",
 		Name = "The Observer",
 		Rarity = "Impossible",
-		Weight = 0.013,
+		Weight = 0.0148, -- keeps the displayed odds at 1 / 100,000
 		Behavior = "TheObserver",
 		Lifetime = 20,
 		PhotoDistance = 220,
@@ -277,6 +307,7 @@ AnomalyConfig.List = {
 		TargetRadius = 13,
 		Icon = "👁️",
 		Badge = "ImpossibleFound",
+		Danger = 1, EMF = 5, Cold = true, Residue = false,
 		Description = "Look up through the skylight. It has always been looking down.",
 	},
 	----------------------------------------------------------------- ???
@@ -293,6 +324,7 @@ AnomalyConfig.List = {
 		Params = { BlinkInterval = 6 },
 		Icon = "🕴️",
 		Badge = "ImpossibleFound",
+		Danger = 1, EMF = 5, Cold = true,
 		Description = "Attention shoppers. The mall is now closed.",
 	},
 	----------------------------------------------------------------- BLACKOUT ONLY
@@ -310,6 +342,7 @@ AnomalyConfig.List = {
 		Spawn = { Kinds = { "Dark" } },
 		TargetRadius = 1.5,
 		Icon = "👀",
+		Danger = 0.4, EMF = 2,
 		Description = "Only appears in a blackout. Two lights that blink back.",
 	},
 	{
@@ -326,10 +359,88 @@ AnomalyConfig.List = {
 		TargetRadius = 4,
 		Params = { RunTime = 1.6, Pause = 1.4 },
 		Icon = "🏃",
+		Danger = 0.6, EMF = 3, Cold = true, Residue = false,
 		Description = "Only appears in a blackout. Too fast to be a shopper.",
 	},
+	----------------------------------------------------------------- SOUND-REACTIVE
+	{
+		Id = "TheListener",
+		Name = "The Listener",
+		Rarity = "Rare",
+		Weight = 30,
+		Behavior = "TheListener",
+		Lifetime = 45,
+		PhotoDistance = 70,
+		Spawn = { Kinds = { "Floor" }, Zones = { "MainHall", "FoodCourt", "ParkingGarage", "StorageHallway", "Cinema" } },
+		TargetRadius = 2.5,
+		Danger = 0.8,
+		EMF = 4,
+		Cold = true,
+		Hearing = {
+			Radius = 80,
+			Threshold = 0.06,
+			Kinds = {
+				Run = 1.4, Land = 1.3, DoorSlam = 1.5, DoorOpen = 1, DoorClose = 0.6, Shutter = 1.6, Flash = 0.6, Focus = 0.8,
+				Voice = 1.5, Footstep = 1, Sneak = 0.4, FlashlightClick = 0.15, FlashlightMalfunction = 0.4,
+				Interaction = 1, Radio = 1.4, Phone = 1.4, EMF = 0.8,
+			},
+		},
+		Params = { ChaseSpeed = 15, AttackRange = 4.5, BatteryDrain = 25 },
+		Icon = "👂",
+		Description = "Blind. It hunts by sound. Photograph it... if the shutter doesn't give you away.",
+	},
+	{
+		Id = "LightCreature",
+		Name = "Light Creature",
+		Rarity = "Unusual",
+		Weight = 70,
+		Behavior = "LightCreature",
+		Lifetime = 30,
+		PhotoDistance = 60,
+		Spawn = { Kinds = { "Dark" } },
+		TargetRadius = 2,
+		Danger = 0.5,
+		EMF = 2,
+		Cold = true,
+		Hearing = { Radius = 22, Threshold = 0.03, Kinds = { FlashlightClick = 1.5, FlashlightMalfunction = 1.2 } },
+		Params = { BeamRange = 30, BeamConeDeg = 28 },
+		Icon = "🦎",
+		Description = "Lives in the dark. Point a flashlight at it and it's gone.",
+	},
+	{
+		Id = "Echo",
+		Name = "Echo",
+		Rarity = "Unusual",
+		Weight = 60,
+		Behavior = "Echo",
+		Lifetime = 40,
+		PhotoDistance = 65,
+		Spawn = { Kinds = { "Floor", "Dark" } },
+		TargetRadius = 2,
+		Danger = 0.4,
+		EMF = 3,
+		Params = { ListenRadius = 70, RepeatCount = 3, RepeatWindow = 8, Cooldown = 6 },
+		Icon = "🎭",
+		Description = "Repeat a sound and it repeats it back... from somewhere else.",
+	},
+	{
+		Id = "Mimic",
+		Name = "Mimic",
+		Rarity = "Rare",
+		Weight = 25,
+		Behavior = "Mimic",
+		Lifetime = 45,
+		PhotoDistance = 60,
+		Spawn = { Kinds = { "Dark" } },
+		TargetRadius = 2,
+		Danger = 0.6,
+		EMF = 3,
+		Cold = true,
+		Params = { TrickInterval = { 5, 9 }, LureRange = 60 },
+		Icon = "👄",
+		Description = "That camera click wasn't your friend. Neither were those footsteps.",
+	},
 }
-
 ---------------------------------------------------------------------------
 -- Lookups & helpers (no need to edit below this line when adding anomalies)
 ---------------------------------------------------------------------------

@@ -25,6 +25,10 @@ Net.Events = {
 	"RoundResults", -- S->C  end of round report
 	"SettingRequest", -- C->S  (key, value)
 	"DarkRoomState", -- S->C  entered / left the dark room
+	"WorldSound", -- S->C  play a 3D/2D sound from SoundConfig (clients handle occlusion + mixing)
+	"EquipmentAction", -- C->S  (action, itemId) toggle equipment, autofocus ping
+	"EquipmentState", -- S->C  batteries + on/off state of your equipment
+	"MovementMode", -- C->S  ("Walk" | "Run" | "Sneak")
 }
 
 Net.Functions = {

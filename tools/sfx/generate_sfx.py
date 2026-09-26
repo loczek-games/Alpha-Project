@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""
+CAUGHT ON CAMERA - procedural sound generator.
+
+Synthesises EVERY sound effect of the game from scratch (numpy DSP, no
+samples, no third-party audio) and packs them into four upload-friendly
+"sound bank" files plus optional individual loop files:
+
+    assets/audio/banks/Equipment.ogg   Camera, Flashlight, EMF, Thermal, UV, NightVision, Equipment
+    assets/audio/banks/Player.ogg      footsteps, jumps/landings, doors, interactions
+    assets/audio/banks/World.ogg       anomalies, environment, UI
+    assets/audio/banks/Loops.ogg       every looping sound (ambience, music, hums, breathing)
+    assets/audio/loops/<Name>.ogg      the same loops as separate files (optional uploads)
+
+and writes src/ReplicatedStorage/Config/SoundBankLayout.lua, which tells the
+game where each sound (and each random variation) sits inside its bank.
+
+Usage (from the repository root):
+    pip install numpy soundfile
+    python tools/sfx/generate_sfx.py                 # everything
+    python tools/sfx/generate_sfx.py --preview out/  # also dump every sound as .wav
+    python tools/sfx/generate_sfx.py --list          # list sound paths
+
+The output is deterministic (fixed seeds), so the layout never changes
+unless a recipe changes. After uploading, paste the 4 bank ids into
+SoundConfig.Banks. See docs/SOUND_DESIGN.md.
+"""
+
+import argparse
+import os
+import sys
+import time
+import zlib
+
+import numpy as np
+import soundfile as sf
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from dsp import SR, N, finish  # noqa: E402
+import recipes_equipment  # noqa: E402
+import recipes_player  # noqa: E402
+import recipes_world  # noqa: E402
+
+ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+
+BANK_OF_CATEGORY = {
+    "Camera": "Equipment",
+    "Flashlight": "Equipment",
+    "EMF": "Equipment",
+    "Thermal": "Equipment",
+    "UV": "Equipment",
+    "NightVision": "Equipment",
+    "Equipment": "Equipment",
+    "Player": "Player",
+    "Door": "Player",
+    "Interaction": "Player",
+    "Anomaly": "World",
+    "Environment": "World",
+    "UI": "World",
+}
+BANK_ORDER = ["Equipment", "Player", "World", "Loops"]
+
+# SoundConfig.Loops key -> SoundConfig path(s) that use it
+LOOP_PATHS = {
+    "MallHum": ["Ambience.MallHum"],
+    "RainSkylight": ["Ambience.RainSkylight"],
+    "HVAC": ["Ambience.HVAC"],
+    "ListenerBreath": ["Anomaly.ListenerBreath"],
+    "FlashlightBuzz": ["Flashlight.Buzz"],
+    "UVHum": ["UV.Hum"],
+    "NightVisionHum": ["NightVision.Hum"],
+    "ThermalScan": ["Thermal.ScanLoop"],
+    "MusicLobby": ["Music.Lobby"],
+    "MusicTension": ["Music.Tension"],
+}
+
+LEAD = 0.05  # silence at the very start of a bank
+GAP = 0.35  # silence between sounds (regions never bleed into each other)
+PRE_ROLL = 0.015  # region starts slightly before the sound (encoder safety)
+POST_ROLL = 0.04  # ...and ends slightly after it
+
+# Loudness caps (peak, rms) per bank; SoundConfig volumes do the final mix.
+LOUDNESS = {"Equipment": (0.89, 0.2), "Player": (0.89, 0.22), "World": (0.89, 0.2), "Loops": (0.8, 0.16)}
+
+
+def collect():
+    recipes = {}
+    loops = {}
+    for module in (recipes_equipment, recipes_player, recipes_world):
+        for path, value in module.RECIPES.items():
+            if path in recipes:
+                raise SystemExit(f"duplicate recipe {path}")
+            recipes[path] = value
+        loops.update(getattr(module, "LOOPS", {}))
+    missing = set(LOOP_PATHS) - set(loops)
+    if missing:
+        raise SystemExit(f"missing loop recipes: {sorted(missing)}")
+    return recipes, loops
+
+
+def seed_for(name, variation):
+    return (zlib.crc32(name.encode()) + variation * 7919) & 0xFFFFFFFF
+
+
+def render_sound(path, fn, variation, bank):
+    rng = np.random.default_rng(seed_for(path, variation))
+    peak, rms = LOUDNESS[bank]
+    y = finish(fn(rng, variation), peak, rms)
+    if not np.all(np.isfinite(y)) or len(y) < 10:
+        raise SystemExit(f"bad audio for {path} #{variation}")
+    return y
+
+
+def render_loop(name, fn, length):
+    rng = np.random.default_rng(seed_for("loop:" + name, 0))
+    y = fn(rng, length)
+    y = y[: N(length)]
+    if len(y) != N(length):
+        raise SystemExit(f"loop {name} has wrong length {len(y)} != {N(length)}")
+    peak, rms = LOUDNESS["Loops"]
+    return finish(y, peak, rms, loop=True)
+
+
+def write_ogg(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = np.clip(data, -1, 1).astype(np.float32)
+    # libsndfile's Vorbis encoder can crash on very large single writes: stream in blocks
+    with sf.SoundFile(path, "w", SR, 1, format="OGG", subtype="VORBIS", compression_level=0.35) as handle:
+        for i in range(0, len(data), 16384):
+            handle.write(data[i: i + 16384])
+
+
+def lua_number(x):
+    return f"{x:.4f}"
+
+
+def write_layout(layout, out_path, bank_lengths):
+    lines = [
+        "--[[",
+        "\tSoundBankLayout (ModuleScript)",
+        "\tLocation: ReplicatedStorage/Config/SoundBankLayout",
+        "",
+        "\tAUTO-GENERATED by tools/sfx/generate_sfx.py - do not edit by hand.",
+        "\tMaps every SoundConfig path to the bank file it lives in and the time",
+        "\tregions (seconds) of each random variation inside that bank.",
+        "",
+        "\tBanks (upload these, then paste the ids into SoundConfig.Banks):",
+    ]
+    for bank in BANK_ORDER:
+        lines.append(f"\t  {bank:<10} assets/audio/banks/{bank}.ogg  ({bank_lengths[bank]:.1f} s)")
+    lines += ["]]", "", "return {", "\tSounds = {"]
+    for path in sorted(layout):
+        bank, regions = layout[path]
+        region_text = ", ".join("{ " + lua_number(a) + ", " + lua_number(b) + " }" for a, b in regions)
+        lines.append(f'\t\t["{path}"] = {{ Bank = "{bank}", Regions = {{ {region_text} }} }},')
+    lines += ["\t},", "}", ""]
+    with open(out_path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--out", default=os.path.join(ROOT, "assets", "audio"), help="output folder for .ogg files")
+    parser.add_argument("--layout", default=os.path.join(ROOT, "src", "ReplicatedStorage", "Config", "SoundBankLayout.lua"))
+    parser.add_argument("--preview", default=None, help="also write every sound as an individual .wav here")
+    parser.add_argument("--list", action="store_true", help="only list the sound paths")
+    args = parser.parse_args()
+
+    recipes, loops = collect()
+    if args.list:
+        for path in sorted(recipes):
+            print(f"{path}  x{recipes[path][1]}")
+        for name, paths in LOOP_PATHS.items():
+            print(f"{', '.join(paths)}  (loop {name}, {loops[name][1]} s)")
+        return
+
+    started = time.time()
+    banks = {bank: [np.zeros(N(LEAD))] for bank in BANK_ORDER}
+    cursor = {bank: LEAD for bank in BANK_ORDER}
+    layout = {}
+
+    def append(bank, path, audio):
+        start = cursor[bank]
+        length = len(audio) / SR
+        region = (max(0.0, start - PRE_ROLL), start + length + POST_ROLL)
+        banks[bank].append(audio)
+        banks[bank].append(np.zeros(N(GAP)))
+        cursor[bank] = start + length + GAP
+        layout.setdefault(path, (bank, []))[1].append(region)
+
+    count = 0
+    for path in sorted(recipes):
+        fn, variations = recipes[path]
+        bank = BANK_OF_CATEGORY[path.split(".")[0]]
+        for variation in range(variations):
+            audio = render_sound(path, fn, variation, bank)
+            append(bank, path, audio)
+            count += 1
+            if args.preview:
+                os.makedirs(args.preview, exist_ok=True)
+                sf.write(os.path.join(args.preview, f"{path}.{variation + 1}.wav"), audio.astype(np.float32), SR)
+
+    for name in LOOP_PATHS:
+        fn, length = loops[name]
+        audio = render_loop(name, fn, length)
+        write_ogg(os.path.join(args.out, "loops", f"{name}.ogg"), audio)
+        for path in LOOP_PATHS[name]:
+            if path in layout:
+                raise SystemExit(f"{path} is both a loop and a one-shot")
+        start = cursor["Loops"]
+        banks["Loops"].append(audio)
+        banks["Loops"].append(np.zeros(N(GAP)))
+        cursor["Loops"] = start + len(audio) / SR + GAP
+        for path in LOOP_PATHS[name]:
+            # loops need exact regions (no pre/post roll) so LoopRegion is seamless
+            layout[path] = ("Loops", [(start, start + len(audio) / SR)])
+        count += 1
+        if args.preview:
+            sf.write(os.path.join(args.preview, f"Loop.{name}.wav"), np.tile(audio, 2).astype(np.float32), SR)
+
+    lengths = {}
+    for bank in BANK_ORDER:
+        data = np.concatenate(banks[bank])
+        lengths[bank] = len(data) / SR
+        write_ogg(os.path.join(args.out, "banks", f"{bank}.ogg"), data)
+
+    write_layout(layout, args.layout, lengths)
+    print(f"Generated {count} sounds ({len(layout)} paths) in {time.time() - started:.1f}s")
+    for bank in BANK_ORDER:
+        size = os.path.getsize(os.path.join(args.out, "banks", f"{bank}.ogg")) / 1024
+        print(f"  {bank:<10} {lengths[bank]:6.1f} s  {size:7.0f} KB")
+    print(f"Layout written to {os.path.relpath(args.layout, ROOT)}")
+
+
+if __name__ == "__main__":
+    main()

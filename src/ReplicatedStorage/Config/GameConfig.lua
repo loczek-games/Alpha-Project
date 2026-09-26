@@ -2,8 +2,9 @@
 	GameConfig (ModuleScript)
 	Location: ReplicatedStorage/Config/GameConfig
 
-	Tuning values for rounds, spawning, photography, events, saving,
-	sounds and admin/debug tools.
+	Tuning values for rounds, spawning, photography, events, movement and
+	noise, environmental masking, saving and admin/debug tools.
+	(Every sound id lives in SoundConfig.)
 ]]
 
 local GameConfig = {}
@@ -126,8 +127,60 @@ GameConfig.Data = {
 }
 
 GameConfig.Player = {
-	WalkSpeed = 18,
+	WalkSpeed = 16,
 	MaxZoomDistance = 20,
+}
+
+-- Movement modes. Running is fast but LOUD; sneaking is slow and nearly silent.
+GameConfig.Movement = {
+	WalkSpeed = 16,
+	RunSpeed = 24,
+	SneakSpeed = 8,
+	StunTime = 1.6, -- frozen after a sound-hunting anomaly catches you
+}
+
+--[[
+	NOISE: every player action can make world noise (0-1) that sound-sensitive
+	anomalies may hear. Perceived loudness falls off with distance, is halved
+	per wall in between, and is hidden by environmental noise (thunder, HVAC...).
+]]
+GameConfig.Noise = {
+	Sneak = 0.03,
+	Walk = 0.1,
+	Run = 0.35,
+	Land = 0.4,
+	HeavyLand = 0.6,
+	LandVelocity = 25, -- falling faster than this makes a landing noise
+	HeavyLandVelocity = 55,
+	SneakSpeedMax = 11, -- horizontal speed thresholds (studs/s)
+	RunSpeedMin = 20,
+	MovementInterval = 0.5,
+	Voice = 0.2, -- chatting makes noise near you
+	EventLifetime = 2.5, -- seconds a noise stays "audible"
+	MaskingFactor = 0.6, -- environmental noise level x this is subtracted from player noise
+	WallDamping = 0.5, -- perceived noise multiplier per wall between source and listener
+	MaxWalls = 2,
+	SurfaceMultiplier = { Metal = 1.3, Wood = 1.1, Water = 1.25, Glass = 1.15, Carpet = 0.6, Grass = 0.7, Tile = 1, Concrete = 1, Hospital = 1.1, School = 1.05 },
+}
+
+-- Environmental sounds that mask player noise, plus paranormal "phantom" sounds.
+GameConfig.Environment = {
+	Thunder = { Interval = { 40, 85 }, Delay = { 0.4, 1.8 }, Masking = 0.8, MaskDuration = 2.5 },
+	HVAC = { Interval = { 55, 110 }, Masking = 0.45, Radius = 60, Duration = 6 },
+	Phone = { Interval = { 80, 160 }, Rings = 4, RingGap = 2.2 },
+	Phantom = {
+		Interval = { 26, 55 },
+		Weights = { Footsteps = 30, Shutter = 15, FlashlightClick = 12, DoorOpen = 15, EMFBeep = 10, BatteryPickup = 8, Knock = 10 },
+	},
+	SilenceRadius = 55, -- music/ambience fade out when a dangerous anomaly is this close
+	SilenceDanger = 0.7,
+}
+
+GameConfig.Interaction = {
+	BatterySpawns = 8, -- battery pickups placed around the mall each round
+	OfficeBatteries = 2, -- extra batteries inside the locked security office
+	RadioCooldown = 20,
+	PhoneHintChance = 0.8,
 }
 
 GameConfig.NPC = {
@@ -160,6 +213,7 @@ GameConfig.Zones = {
 	Bathrooms = "BATHROOMS",
 	ParkingGarage = "PARKING GARAGE",
 	StorageHallway = "STORAGE HALLWAY",
+	SecurityOffice = "SECURITY OFFICE",
 }
 
 GameConfig.Map = {
@@ -174,27 +228,6 @@ GameConfig.Animations = {
 	Idle = "rbxassetid://507766666",
 	Wave = "rbxassetid://507770239",
 	Point = "rbxassetid://507770453",
-}
-
---[[
-	Sounds. Built-in rbxasset:// sounds work in every place. Replace any of these
-	with your own uploaded audio ids (rbxassetid://...) for extra polish.
-	An empty string disables that sound.
-]]
-GameConfig.Sounds = {
-	Shutter = { Id = "rbxasset://sounds/clickfast.wav", Volume = 0.9, Speed = 0.85 },
-	Capture = { Id = "rbxasset://sounds/electronicpingshort.wav", Volume = 0.5, Speed = 1.25 },
-	NewDiscovery = { Id = "rbxasset://sounds/electronicpingshort.wav", Volume = 0.7, Speed = 1.6 },
-	Fail = { Id = "rbxasset://sounds/clickfast.wav", Volume = 0.35, Speed = 0.5 },
-	Button = { Id = "rbxasset://sounds/clickfast.wav", Volume = 0.35, Speed = 1.3 },
-	Announce = { Id = "rbxasset://sounds/electronicpingshort.wav", Volume = 0.6, Speed = 0.7 },
-	Reveal = { Id = "rbxasset://sounds/electronicpingshort.wav", Volume = 0.9, Speed = 0.35 },
-	Whisper = { Id = "rbxasset://sounds/electronicpingshort.wav", Volume = 0.25, Speed = 0.3 },
-	AnomalySting = { Id = "rbxasset://sounds/electronicpingshort.wav", Volume = 0.45, Speed = 0.25 },
-	Tick = { Id = "rbxasset://sounds/clickfast.wav", Volume = 0.4, Speed = 1.8 },
-	Slam = { Id = "rbxasset://sounds/clickfast.wav", Volume = 1, Speed = 0.3 },
-	Heartbeat = { Id = "rbxasset://sounds/clickfast.wav", Volume = 0.5, Speed = 0.4 },
-	Ambience = { Id = "", Volume = 0.25, Speed = 1 },
 }
 
 -- Badge ids from the Creator Dashboard. 0 = disabled.
@@ -216,10 +249,17 @@ GameConfig.Debug = {
 
 GameConfig.Settings = {
 	-- Allowed player settings and their defaults. Only these keys are accepted from clients.
+	-- Booleans are toggles; numbers are volumes (clamped to 0..1 on the server).
 	ReducedFlashes = false,
 	ScreenShake = true,
 	Hints = true,
 	Ambience = true,
+	MasterVolume = 1,
+	MusicVolume = 0.7,
+	AmbienceVolume = 0.8,
+	EquipmentVolume = 1,
+	VoiceVolume = 1,
+	JumpscareVolume = 1,
 }
 
 return GameConfig

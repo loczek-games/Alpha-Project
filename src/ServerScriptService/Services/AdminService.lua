@@ -12,6 +12,11 @@
 	  /evidence <amount>
 	  /anomalies              print every anomaly id to the output
 	  /resetdata              wipe your own save (Studio only)
+	  /phantom [kind]         play a deceptive sound near a player
+	                          (Footsteps, Shutter, FlashlightClick, DoorOpen, EMFBeep, BatteryPickup, Knock)
+	  /thunder                lightning + thunder (masks player noise)
+	  /battery                refill all of your equipment batteries
+	  /equipment              unlock every piece of equipment (Studio only)
 ]]
 
 local Players = game:GetService("Players")
@@ -44,7 +49,7 @@ function AdminService:Init(services)
 	local ok, err = pcall(function()
 		local folder = Instance.new("Folder")
 		folder.Name = "CaughtOnCameraCommands"
-		for _, name in ipairs({ "spawn", "event", "round", "evidence", "anomalies", "resetdata" }) do
+		for _, name in ipairs({ "spawn", "event", "round", "evidence", "anomalies", "resetdata", "phantom", "thunder", "battery", "equipment" }) do
 			local command = Instance.new("TextChatCommand")
 			command.Name = "COC_" .. name
 			command.PrimaryAlias = "/" .. name
@@ -156,6 +161,40 @@ function AdminService:_run(player: Player, message: string)
 		end
 		print("[AdminService] Anomalies: " .. table.concat(ids, ", "))
 		self:_reply(player, "Anomaly ids printed to the Output window")
+	elseif command == "phantom" then
+		if services.RoundService.State ~= "Round" then
+			self:_reply(player, "Start a round first: /round start")
+			return
+		end
+		task.spawn(function()
+			services.EnvironmentService:Phantom(args[2])
+		end)
+		self:_reply(player, "Phantom sound played")
+	elseif command == "thunder" then
+		task.spawn(function()
+			services.EnvironmentService:Thunder()
+		end)
+		self:_reply(player, "Thunder (player noise masked for a moment)")
+	elseif command == "battery" then
+		-- each call charges the emptiest owned item, so one per item fills them all
+		for _ = 1, 7 do
+			services.EquipmentService:AddBattery(player, 100)
+		end
+		self:_reply(player, "Batteries refilled")
+	elseif command == "equipment" then
+		if not RunService:IsStudio() then
+			self:_reply(player, "Only available in Studio")
+			return
+		end
+		local data = services.DataService:GetData(player)
+		if data then
+			for id in pairs(require(ReplicatedStorage.Config.EquipmentConfig).Items) do
+				data.OwnedEquipment[id] = true
+			end
+			services.DataService:MarkChanged(player)
+			services.EquipmentService:RefreshTools(player)
+			self:_reply(player, "All equipment unlocked")
+		end
 	elseif command == "resetdata" then
 		if not RunService:IsStudio() then
 			self:_reply(player, "Only available in Studio")

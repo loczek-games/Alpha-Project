@@ -4,7 +4,7 @@
 
 	Server-wide events that change the whole mall for everybody:
 	  Surge        - anomaly activity and rare luck rise
-	  Blackout     - lights out, flashlights on, darkness-only anomalies
+	  Blackout     - lights out: flashlights, darkness-only anomalies, breaker resets it
 	  FalseAlarm   - several suspicious decoys, exactly one real anomaly
 	  RareAnomaly  - "SOMETHING RARE IS HERE." (location is never revealed)
 	Events fire randomly during rounds and can be bought as Developer Products
@@ -137,21 +137,10 @@ EventService.DecoyBuilders = {
 		if not marker then
 			return
 		end
-		local soundConfig = GameConfig.Sounds.Slam
-		if soundConfig.Id == "" then
-			return
-		end
-		local holder = decoyPart(self.Services.MapService.Folders.Decoys, Vector3.new(1, 1, 1), marker.CFrame, Color3.new(), nil)
-		holder.Transparency = 1
-		holder.CanQuery = false
-		local sound = Instance.new("Sound")
-		sound.SoundId = soundConfig.Id
-		sound.Volume = soundConfig.Volume
-		sound.PlaybackSpeed = soundConfig.Speed
-		sound.RollOffMaxDistance = 220
-		sound.Parent = holder
-		sound:Play()
-		cleaner:Add(holder)
+		self.Services.AudioService:Play("Environment.DistantBang", marker.Position)
+		cleaner:Add(task.delay(math.random(4, 8), function()
+			self.Services.AudioService:Play("Door.Metal.Slam", marker.Position)
+		end))
 	end,
 	-- A bouncing ball in the toy store.
 	function(self, cleaner)
@@ -207,10 +196,14 @@ EventService.Handlers = {
 	Blackout = {
 		Start = function(self, event)
 			self.Services.MapService:SetBlackout(true)
-			self.Services.CharacterService:SetFlashlights(true)
+			self.AnnounceRemote:FireAllClients({
+				Kind = "Toast",
+				Text = "🔦 Pull out your FLASHLIGHT (slot 2). The breaker is in the Security Office...",
+				Color = Color3.fromRGB(150, 180, 255),
+				Duration = 5,
+			})
 			event.Cleaner:Add(function()
 				self.Services.MapService:SetBlackout(false)
-				self.Services.CharacterService:SetFlashlights(false)
 			end)
 			for _ = 1, event.Def.BurstSpawns or 0 do
 				self.Services.AnomalyService:SpawnRandom({ RequireEvent = "Blackout" })
