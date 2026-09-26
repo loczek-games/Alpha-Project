@@ -396,6 +396,25 @@ function place.new(path: string?)
 			end
 		end
 		engine.signalFor(player, "CharacterAdded"):Fire(character)
+		-- Roblox gives every spawned character a fresh Backpack (refilled from
+		-- StarterPack / StarterGear), replacing the old one right after
+		-- CharacterAdded: anything put into the old Backpack is gone.
+		task.delay(0.15, function()
+			local old = player:FindFirstChildOfClass("Backpack")
+			if old then
+				old:Destroy()
+			end
+			local fresh = roblox.Instance.new("Backpack")
+			local starterGear = player:FindFirstChild("StarterGear")
+			for _, source in { dataModel:GetService("StarterPack"), starterGear } do
+				if source then
+					for _, tool in source:GetChildren() do
+						tool:Clone().Parent = fresh
+					end
+				end
+			end
+			fresh.Parent = player
+		end)
 		return character
 	end
 	engine.spawnCharacter = function(player)

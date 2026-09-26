@@ -227,9 +227,56 @@ wrap = function(value: any): any
 end
 engine.wrap = wrap
 
+-- Roblox still lets scripts read a destroyed instance's Name / ClassName /
+-- IsA; Lune refuses every access. Remember them per proxy.
+local lastKnown = setmetatable({}, { __mode = "k" })
+local reflection = roblox.getReflectionDatabase()
+local function isA(className: string, target: string): boolean
+	local class = reflection:GetClass(className)
+	while class do
+		if class.Name == target then
+			return true
+		end
+		class = class.Superclass and reflection:GetClass(class.Superclass)
+	end
+	return false
+end
+
+-- a proxy for an instance that may already be destroyed, with the
+-- Name / ClassName it had when it was last seen
+function engine.wrapKnown(entry: { Instance: any, Name: string, ClassName: string })
+	local proxy = wrap(entry.Instance)
+	if not lastKnown[proxy] then
+		lastKnown[proxy] = { Name = entry.Name, ClassName = entry.ClassName }
+	end
+	return proxy
+end
+
 ProxyMeta.__index = function(proxy, key)
 	local raw = rawOf[proxy]
-	local value = raw[key]
+	local readable, value = pcall(function()
+		return raw[key]
+	end)
+	if not readable then
+		local known = lastKnown[proxy]
+		if known and string.find(tostring(value), "destroyed", 1, true) then
+			if key == "Name" or key == "ClassName" then
+				return known[key]
+			elseif key == "Parent" then
+				return nil
+			elseif key == "IsA" then
+				return function(_, target)
+					return isA(known.ClassName, target)
+				end
+			end
+		end
+		error(value, 2)
+	end
+	if not lastKnown[proxy] then
+		lastKnown[proxy] = { Name = raw.Name, ClassName = raw.ClassName }
+	elseif key == "Name" then
+		lastKnown[proxy].Name = value
+	end
 	if type(value) == "function" then
 		local cached = methodCache[key]
 		if not cached then
@@ -282,7 +329,7 @@ end
 local function idSet(list: { any }): { [number]: any }
 	local result = {}
 	for _, item in list do
-		result[idOf(item)] = item
+		result[idOf(item)] = { Instance = item, Name = item.Name, ClassName = item.ClassName }
 	end
 	return result
 end
@@ -345,28 +392,28 @@ function engine.step()
 		local set = signals[id] or {}
 		if record.Children then
 			local now = idSet(instance:GetChildren())
-			for childId, child in now do
+			for childId, entry in now do
 				if record.Children[childId] == nil and set.ChildAdded then
-					set.ChildAdded:Fire(child)
+					set.ChildAdded:Fire(entry.Instance)
 				end
 			end
-			for childId, child in record.Children do
+			for childId, entry in record.Children do
 				if now[childId] == nil and set.ChildRemoved then
-					set.ChildRemoved:Fire(child)
+					set.ChildRemoved:Fire(engine.wrapKnown(entry))
 				end
 			end
 			record.Children = now
 		end
 		if record.Descendants then
 			local now = idSet(instance:GetDescendants())
-			for dId, d in now do
+			for dId, entry in now do
 				if record.Descendants[dId] == nil and set.DescendantAdded then
-					set.DescendantAdded:Fire(d)
+					set.DescendantAdded:Fire(entry.Instance)
 				end
 			end
-			for dId, d in record.Descendants do
+			for dId, entry in record.Descendants do
 				if now[dId] == nil and set.DescendantRemoving then
-					set.DescendantRemoving:Fire(d)
+					set.DescendantRemoving:Fire(engine.wrapKnown(entry))
 				end
 			end
 			record.Descendants = now

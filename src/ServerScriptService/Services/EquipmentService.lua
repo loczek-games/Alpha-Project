@@ -88,15 +88,29 @@ function EquipmentService:Init(services)
 		end
 	end)
 
+	-- Roblox gives every spawned character a NEW Backpack (right after
+	-- CharacterAdded), so tools are (re)delivered whenever a Backpack appears,
+	-- shortly after each spawn, and by a self-heal check in _tick.
 	local function watch(player: Player)
-		-- tools themselves are (re)built by CharacterService -> RefreshTools
-		player.CharacterAdded:Connect(function()
+		player.CharacterAdded:Connect(function(character)
 			local state = self:_state(player)
 			for itemId in pairs(state.On) do
 				state.On[itemId] = false
 			end
 			state.FailingUntil = 0
 			self:_push(player)
+			task.delay(0.5, function()
+				if player.Character == character then
+					self:EnsureTools(player)
+				end
+			end)
+		end)
+		player.ChildAdded:Connect(function(child)
+			if child:IsA("Backpack") then
+				task.defer(function()
+					self:EnsureTools(player)
+				end)
+			end
 		end)
 	end
 	Players.PlayerAdded:Connect(watch)
@@ -105,7 +119,7 @@ function EquipmentService:Init(services)
 		-- characters that spawned before this service was ready get their tools now
 		if player.Character then
 			task.defer(function()
-				self:RefreshTools(player)
+				self:EnsureTools(player)
 			end)
 		end
 	end
@@ -248,6 +262,37 @@ function EquipmentService:GetSkin(player: Player, itemId: string)
 	return (if skin then skin else nil) or EquipmentModels.DefaultSkin(itemId)
 end
 
+-- Every owned item as a Tool in the Backpack (or in hand)? Rebuilds them if
+-- not - e.g. after Roblox replaced the Backpack on spawn. Returns true when
+-- the player has all their tools.
+function EquipmentService:EnsureTools(player: Player): boolean
+	if not self.Services or not player:IsDescendantOf(Players) then
+		return false
+	end
+	local character = player.Character
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not character or not backpack or not humanoid or humanoid.Health <= 0 then
+		return false
+	end
+	local present = {}
+	for _, container in ipairs({ backpack, character }) do
+		for _, child in ipairs(container:GetChildren()) do
+			if child:IsA("Tool") and child:GetAttribute("COCEquipment") then
+				present[child.Name] = true
+			end
+		end
+	end
+	for _, item in ipairs(EquipmentConfig.GetSorted()) do
+		local buildable = item.Wearable or EquipmentModels.Has(item.Id)
+		if buildable and not present[item.Id] and self:Owns(player, item.Id) then
+			self:RefreshTools(player)
+			return false
+		end
+	end
+	return true
+end
+
 -- (Re)builds the player's equipment tools. Keeps the currently held item in hand.
 function EquipmentService:RefreshTools(player: Player)
 	if not self.Services then
@@ -343,6 +388,7 @@ function EquipmentService:OnMissionMode(player: Player, inMission: boolean)
 		humanoid:UnequipTools()
 		return
 	end
+	self:EnsureTools(player)
 	local camera = self:FindTool(player, "Camera")
 	if camera and camera.Parent ~= character then
 		humanoid:EquipTool(camera)
@@ -611,6 +657,16 @@ function EquipmentService:_tick(dt: number)
 	local anomalies = self.Services.AnomalyService
 	local audio = self.Services.AudioService
 	local now = os.clock()
+	-- self-heal: nobody stays without their tools (backpack resets, deaths ...)
+	if now >= (self._nextToolCheck or 0) then
+		self._nextToolCheck = now + 1.5
+		for _, player in ipairs(Players:GetPlayers()) do
+			local ok, err = pcall(self.EnsureTools, self, player)
+			if not ok then
+				warn("[EquipmentService] EnsureTools:", err)
+			end
+		end
+	end
 	for player, state in pairs(self.State) do
 		if not player:IsDescendantOf(Players) then
 			continue

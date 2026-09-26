@@ -204,6 +204,29 @@ frames(20)
 check(Equipment.Equipped == "Camera", "holding the EMF, Q takes the camera out (" .. tostring(Equipment.Equipped) .. ")")
 
 ---------------------------------------------------------------------------
+print("\n== respawn during the mission ==")
+---------------------------------------------------------------------------
+character = session:spawnCharacter(player)
+frames(90)
+local respawnNames = {}
+for _, container in { player:FindFirstChildOfClass("Backpack"), character } do
+	for _, child in container:GetChildren() do
+		if child:IsA("Tool") then
+			table.insert(respawnNames, child.Name)
+		end
+	end
+end
+table.sort(respawnNames)
+check(#respawnNames >= 3, "tools are back after respawning: " .. table.concat(respawnNames, ", "))
+local heldAfter = nil
+for _, child in character:GetChildren() do
+	if child:IsA("Tool") then
+		heldAfter = child.Name
+	end
+end
+check(heldAfter == "Camera", "camera in hand again after respawning (" .. tostring(heldAfter) .. ")")
+
+---------------------------------------------------------------------------
 print("\n== end of mission ==")
 ---------------------------------------------------------------------------
 MissionService:ForceEnd()
